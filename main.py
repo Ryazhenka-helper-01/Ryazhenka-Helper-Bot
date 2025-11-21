@@ -1,0 +1,257 @@
+import asyncio
+import time
+
+from aiogram import Bot, Dispatcher
+from aiogram.enums import ChatMemberStatus, ChatType
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message
+
+import config
+from storage import BotStorage
+
+
+storage = BotStorage()
+
+group_types = {ChatType.GROUP, ChatType.SUPERGROUP}
+
+
+async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
+    member = await bot.get_chat_member(chat_id, user_id)
+    return member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}
+
+
+async def cmd_start(message: Message) -> None:
+    if message.chat.type in group_types:
+        await message.reply(
+            "Привет! Я Ruzhenka-helper.\n"
+            "Считаю активность участников и могу выдавать гайды.\n"
+            "Напиши /help, чтобы посмотреть команды."
+        )
+    else:
+        await message.answer(
+            "Привет! Я Ruzhenka-helper — бот для групп.\n"
+            "Добавь меня в свой чат как админа и используй /help в чате."
+        )
+
+
+async def cmd_help(message: Message) -> None:
+    text = (
+        "Команды Ruzhenka-helper:\n"
+        "/myrank – показать твой ранг и количество сообщений\n"
+        "/guide <ключ> – показать гайд\n"
+        "/guides – список гайдов\n\n"
+        "Только админы группы:\n"
+        "/addrank <сообщений> <название> – добавить ранг (порог по сообщениям)\n"
+        "/ranks – список рангов и их пороги\n"
+        "/resetranks – сбросить ранги по умолчанию (F–S++)\n"
+        "/setguide <ключ> <текст> – создать/обновить гайд\n"
+        "/delguide <ключ> – удалить гайд\n"
+    )
+    await message.reply(text)
+
+
+async def cmd_myrank(message: Message) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    user_id = user.id
+    user_data = storage.get_user(chat_id, user_id)
+    xp = int(user_data.get("xp", 0))
+    rank = storage.get_rank_for_xp(chat_id, xp)
+    await message.reply(f"Твой ранг: {rank}\nСообщений: {xp}")
+
+
+async def cmd_addrank(message: Message, bot: Bot) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    if not await is_user_admin(bot, chat_id, user.id):
+        await message.reply("Только админ чата может настраивать ранги.")
+        return
+    parts = message.text.split(maxsplit=2) if message.text else []
+    if len(parts) < 3:
+        await message.reply(
+            "Использование: /addrank <сообщений_минимум> <название ранга>"
+        )
+        return
+    try:
+        xp_min = int(parts[1])
+    except ValueError:
+        await message.reply("Количество сообщений должно быть числом.")
+        return
+    name = parts[2].strip()
+    if not name:
+        await message.reply("Название ранга не может быть пустым.")
+        return
+    storage.add_rank(chat_id, xp_min, name)
+    await message.reply(f"Ранг '{name}' с порогом {xp_min} сообщений добавлен.")
+
+
+async def cmd_ranks(message: Message) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    chat_id = message.chat.id
+    ranks = storage.list_ranks(chat_id)
+    if not ranks:
+        await message.reply("Для этого чата ещё нет рангов.")
+        return
+    lines = ["Ранги для этого чата (по количеству сообщений):"]
+    for r in ranks:
+        lines.append(f"{r.get('xp_min', 0)} сообщений — {r.get('name', '')}")
+    await message.reply("\n".join(lines))
+
+
+async def cmd_reset_ranks(message: Message, bot: Bot) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    if not await is_user_admin(bot, chat_id, user.id):
+        await message.reply("Только админ чата может сбрасывать ранги.")
+        return
+    storage.reset_ranks(chat_id)
+    await message.reply("Ранги сброшены на значения по умолчанию.")
+
+
+async def cmd_setguide(message: Message, bot: Bot) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    if not await is_user_admin(bot, chat_id, user.id):
+        await message.reply("Только админ чата может настраивать гайды.")
+        return
+    parts = message.text.split(maxsplit=2) if message.text else []
+    if len(parts) < 3:
+        await message.reply("Использование: /setguide <ключ> <текст гайда>")
+        return
+    key = parts[1].strip().lower()
+    text = parts[2].strip()
+    if not key or not text:
+        await message.reply("Ключ и текст гайда не могут быть пустыми.")
+        return
+    storage.set_guide(chat_id, key, text)
+    await message.reply(f"Гайд '{key}' сохранён.")
+
+
+async def cmd_delguide(message: Message, bot: Bot) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    if not await is_user_admin(bot, chat_id, user.id):
+        await message.reply("Только админ чата может удалять гайды.")
+        return
+    parts = message.text.split(maxsplit=1) if message.text else []
+    if len(parts) < 2:
+        await message.reply("Использование: /delguide <ключ>")
+        return
+    key = parts[1].strip().lower()
+    if not key:
+        await message.reply("Ключ не может быть пустым.")
+        return
+    ok = storage.delete_guide(chat_id, key)
+    if ok:
+        await message.reply(f"Гайд '{key}' удалён.")
+    else:
+        await message.reply(f"Гайд с ключом '{key}' не найден.")
+
+
+async def cmd_guide(message: Message) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    parts = message.text.split(maxsplit=1) if message.text else []
+    if len(parts) < 2:
+        await message.reply("Использование: /guide <ключ>\nСписок ключей: /guides")
+        return
+    key = parts[1].strip().lower()
+    chat_id = message.chat.id
+    text = storage.get_guide(chat_id, key)
+    if not text:
+        await message.reply(
+            f"Гайд с ключом '{key}' не найден. Посмотри список через /guides."
+        )
+        return
+    await message.reply(text)
+
+
+async def cmd_guides(message: Message) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    chat_id = message.chat.id
+    guides = storage.list_guides(chat_id)
+    if not guides:
+        await message.reply("Для этого чата ещё нет ни одного гайда.")
+        return
+    lines = ["Список доступных гайдов:"]
+    for key in sorted(guides.keys()):
+        lines.append(f"- {key}")
+    lines.append("\nИспользуй /guide <ключ>, чтобы получить гайд.")
+    await message.reply("\n".join(lines))
+
+
+async def on_message(message: Message) -> None:
+    if message.chat.type not in group_types:
+        return
+    user = message.from_user
+    if user is None or user.is_bot:
+        return
+    if not message.text or message.text.startswith("/"):
+        return
+    chat_id = message.chat.id
+    user_id = user.id
+    now_ts = int(time.time())
+    new_xp, old_rank, new_rank, leveled_up = storage.add_message_xp(
+        chat_id, user_id, now_ts
+    )
+    if leveled_up:
+        name = user.full_name or user.username or "участник"
+        await message.reply(
+            f"{name}, поздравляю! Твой новый ранг: {new_rank} (сообщений: {new_xp})."
+        )
+
+
+async def main() -> None:
+    if not config.BOT_TOKEN or config.BOT_TOKEN == "PASTE_YOUR_TOKEN_HERE":
+        raise RuntimeError("Сначала укажи токен бота в файле config.py (BOT_TOKEN).")
+    bot = Bot(token=config.BOT_TOKEN)
+    dp = Dispatcher()
+
+    dp.message.register(cmd_start, CommandStart())
+    dp.message.register(cmd_help, Command("help"))
+    dp.message.register(cmd_myrank, Command("myrank"))
+    dp.message.register(cmd_addrank, Command("addrank"))
+    dp.message.register(cmd_ranks, Command("ranks"))
+    dp.message.register(cmd_reset_ranks, Command("resetranks"))
+    dp.message.register(cmd_setguide, Command("setguide"))
+    dp.message.register(cmd_delguide, Command("delguide"))
+    dp.message.register(cmd_guide, Command("guide"))
+    dp.message.register(cmd_guides, Command("guides"))
+    dp.message.register(on_message)
+
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
