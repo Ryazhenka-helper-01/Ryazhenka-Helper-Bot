@@ -1,0 +1,7 @@
+[build]
+# Явно говорим Railway использовать стандартный builder (nixpacks), а не Staticfile
+builder = "nixpacks"
+
+[deploy]
+# Команда запуска бота внутри контейнера
+start = "python main.py"
