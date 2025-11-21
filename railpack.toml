@@ -1,0 +1,7 @@
+[build]
+# Явно говорим Railway, что это Python-проект
+builder = "python"
+
+[deploy]
+# Команда запуска бота
+start = "python main.py"
