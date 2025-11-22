@@ -40,7 +40,7 @@ class BotStorage:
                     "xp_per_message": config.XP_PER_MESSAGE,
                     "xp_cooldown_seconds": config.XP_COOLDOWN_SECONDS,
                     "ranks": list(config.DEFAULT_RANKS),
-                    "guides": {},
+                    "guides": dict(getattr(config, "DEFAULT_GUIDES", {})),
                 },
                 "users": {},
             }

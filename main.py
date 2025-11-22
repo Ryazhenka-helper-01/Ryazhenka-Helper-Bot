@@ -1,12 +1,16 @@
 import asyncio
 import time
 
-import httpx
-
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
 
 import config
 from storage import BotStorage
@@ -15,6 +19,22 @@ from storage import BotStorage
 storage = BotStorage()
 
 group_types = {ChatType.GROUP, ChatType.SUPERGROUP}
+
+
+def make_main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="Поиск гайда"),
+                KeyboardButton(text="Список гайдов"),
+            ],
+            [
+                KeyboardButton(text="Мой ранг"),
+                KeyboardButton(text="Список рангов"),
+            ],
+        ],
+        resize_keyboard=True,
+    )
 
 
 async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
@@ -27,7 +47,8 @@ async def cmd_start(message: Message, bot: Bot) -> None:
         await message.reply(
             "Привет! Я Ruzhenka-helper.\n"
             "Считаю активность участников и могу выдавать гайды.\n"
-            "Напиши /help, чтобы посмотреть команды."
+            "Напиши /help, чтобы посмотреть команды.",
+            reply_markup=make_main_keyboard(),
         )
     else:
         me = await bot.get_me()
@@ -49,6 +70,10 @@ async def cmd_start(message: Message, bot: Bot) -> None:
             "Добавь меня в свой чат как админа и используй /help в чате.",
             reply_markup=keyboard,
         )
+        await message.answer(
+            "Выбери действие на клавиатуре ниже.",
+            reply_markup=make_main_keyboard(),
+        )
 
 
 async def cmd_help(message: Message) -> None:
@@ -56,8 +81,7 @@ async def cmd_help(message: Message) -> None:
         "Команды Ruzhenka-helper:\n"
         "/myrank – показать твой ранг и количество сообщений\n"
         "/guide <ключ> – показать гайд\n"
-        "/guides – список гайдов\n"
-        "/fw <запрос> – поиск гайдов по прошивке на GitHub\n\n"
+        "/guides – список гайдов\n\n"
         "Только админы группы:\n"
         "/addrank <сообщений> <название> – добавить ранг (порог по сообщениям)\n"
         "/ranks – список рангов и их пороги\n"
@@ -226,65 +250,16 @@ async def cmd_guides(message: Message) -> None:
         lines.append(f"- {key}")
     lines.append("\nИспользуй /guide <ключ>, чтобы получить гайд.")
     await message.reply("\n".join(lines))
-
-
-async def search_firmware_repos(query: str, limit: int = 5) -> list[dict]:
-    params = {
-        "q": f"{query} firmware",
-        "sort": "stars",
-        "order": "desc",
-        "per_page": str(limit),
-    }
-    headers = {
-        "Accept": "application/vnd.github+json",
-    }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            "https://api.github.com/search/repositories",
-            params=params,
-            headers=headers,
-        )
-        response.raise_for_status()
-        data = response.json()
-    items = data.get("items") or []
-    return items
-
-
-async def cmd_fw(message: Message) -> None:
-    parts = message.text.split(maxsplit=1) if message.text else []
-    if len(parts) < 2:
-        await message.reply(
-            "Использование: /fw <запрос>\nНапример: /fw xiaomi redmi прошивка"
-        )
-        return
-    query = parts[1].strip()
-    if not query:
-        await message.reply(
-            "Использование: /fw <запрос>\nНапример: /fw xiaomi redmi прошивка"
-        )
-        return
-    await message.reply("Ищу гайды по прошивке на GitHub, подожди...")
-    try:
-        repos = await search_firmware_repos(query, limit=5)
-    except httpx.HTTPError:
-        await message.reply("Не удалось получить данные с GitHub. Попробуй позже.")
-        return
-    if not repos:
-        await message.reply("Ничего не нашёл на GitHub по такому запросу.")
-        return
-    lines = ["Нашёл несколько репозиториев на GitHub:"]
-    for repo in repos:
-        name = repo.get("full_name") or repo.get("name") or "repo"
-        url = repo.get("html_url") or ""
-        description = repo.get("description") or ""
-        if description and len(description) > 100:
-            description = description[:97] + "..."
-        if url:
-            if description:
-                lines.append(f"- {name}: {url} — {description}")
-            else:
-                lines.append(f"- {name}: {url}")
-    await message.reply("\n".join(lines), disable_web_page_preview=True)
+async def handle_quick_buttons(message: Message) -> None:
+    text = (message.text or "").strip().lower()
+    if text == "поиск гайда":
+        await message.reply("Напиши /guide <ключ>. Список ключей: /guides")
+    elif text == "список гайдов":
+        await cmd_guides(message)
+    elif text == "мой ранг":
+        await cmd_myrank(message)
+    elif text == "список рангов":
+        await cmd_ranks(message)
 
 
 async def on_message(message: Message) -> None:
@@ -324,7 +299,7 @@ async def main() -> None:
     dp.message.register(cmd_delguide, Command("delguide"))
     dp.message.register(cmd_guide, Command("guide"))
     dp.message.register(cmd_guides, Command("guides"))
-    dp.message.register(cmd_fw, Command("fw"))
+    dp.message.register(handle_quick_buttons)
     dp.message.register(on_message)
 
     await bot.delete_webhook(drop_pending_updates=True)
