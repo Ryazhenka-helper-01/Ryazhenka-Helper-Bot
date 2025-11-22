@@ -12,6 +12,7 @@ from aiogram.types import (
     KeyboardButton,
     CallbackQuery,
     BotCommand,
+    MessageReactionUpdated,
 )
 
 import config
@@ -36,6 +37,9 @@ def make_main_keyboard() -> ReplyKeyboardMarkup:
             [
                 KeyboardButton(text="Мой ранг"),
                 KeyboardButton(text="Список рангов"),
+            ],
+            [
+                KeyboardButton(text="Помощь"),
             ],
         ],
         resize_keyboard=True,
@@ -283,6 +287,9 @@ async def handle_quick_buttons(message: Message) -> None:
         await cmd_myrank(message)
     elif text == "список рангов":
         await cmd_ranks(message)
+    elif text == "помощь":
+        await cmd_help(message)
+    await message.continue_propagation()
 
 
 async def handle_guide_callback(callback: CallbackQuery) -> None:
@@ -301,6 +308,31 @@ async def handle_guide_callback(callback: CallbackQuery) -> None:
         await message.answer(text)
     else:
         await callback.answer("Гайд не найден", show_alert=True)
+
+
+async def on_reaction(update: MessageReactionUpdated) -> None:
+    chat = update.chat
+    if chat.type not in group_types:
+        return
+    user = update.user
+    if user is None or user.is_bot:
+        return
+    new_reactions = update.new_reaction or []
+    old_reactions = update.old_reaction or []
+    if len(new_reactions) <= len(old_reactions):
+        return
+    chat_id = chat.id
+    user_id = user.id
+    now_ts = int(time.time())
+    new_xp, old_rank, new_rank, leveled_up = storage.add_message_xp(
+        chat_id, user_id, now_ts
+    )
+    if leveled_up:
+        name = user.full_name or user.username or "участник"
+        await update.bot.send_message(
+            chat_id,
+            f"{name}, поздравляю! Твой новый ранг: {new_rank} (очков: {new_xp}).",
+        )
 
 
 async def on_message(message: Message) -> None:
@@ -354,6 +386,7 @@ async def main() -> None:
     dp.message.register(handle_quick_buttons)
     dp.message.register(on_message)
     dp.callback_query.register(handle_guide_callback)
+    dp.message_reaction.register(on_reaction)
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
