@@ -152,7 +152,7 @@ async def cmd_help(message: Message) -> None:
         "Только админы группы:\n"
         "/addrank <сообщений> <название> – добавить ранг (порог по сообщениям)\n"
         "/ranks – список рангов и их пороги\n"
-        "/resetranks – сбросить ранги по умолчанию (F–S++)\n"
+        "/resetranks <кол-во> (в ответ на сообщение) – снять сообщения/ранг\n"
         "/setguide <ключ> <текст> – создать/обновить гайд\n"
         "/delguide <ключ> – удалить гайд\n"
         "/addxp <кол-во> (в ответ на сообщение) – вручную выдать сообщения/ранг\n\n"
@@ -233,10 +233,33 @@ async def cmd_reset_ranks(message: Message, bot: Bot) -> None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может сбрасывать ранги.")
+        await message.reply("Только админ чата может снимать очки у участников.")
         return
-    storage.reset_ranks(chat_id)
-    await message.reply("Ранги сброшены на значения по умолчанию.")
+    parts = message.text.split(maxsplit=1) if message.text else []
+    if len(parts) < 2:
+        await message.reply("Использование: /resetranks <количество> (команда должна быть ответом на сообщение участника)")
+        return
+    try:
+        amount = int(parts[1].strip())
+    except ValueError:
+        await message.reply("Количество должно быть числом.")
+        return
+    if amount <= 0:
+        await message.reply("Количество должно быть больше нуля.")
+        return
+    reply = message.reply_to_message
+    if not reply or not reply.from_user or reply.from_user.is_bot:
+        await message.reply("Команда должна быть ответом на сообщение участника.")
+        return
+    target = reply.from_user
+    new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(chat_id, target.id, -amount)
+    text = (
+        f"Снято {amount} очков у {target.full_name or target.username}.")
+    if leveled_up:
+        text += f" Новый ранг: {new_rank} (всего: {new_xp})."
+    else:
+        text += f" Текущее количество: {new_xp}, ранг: {new_rank}."
+    await message.reply(text)
 
 
 async def cmd_setguide(message: Message, bot: Bot) -> None:
