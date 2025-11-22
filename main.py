@@ -10,6 +10,8 @@ from aiogram.types import (
     InlineKeyboardButton,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    CallbackQuery,
+    BotCommand,
 )
 
 import config
@@ -19,6 +21,9 @@ from storage import BotStorage
 storage = BotStorage()
 
 group_types = {ChatType.GROUP, ChatType.SUPERGROUP}
+
+
+GUIDE_CALLBACK_PREFIX = "guide:"
 
 
 def make_main_keyboard() -> ReplyKeyboardMarkup:
@@ -34,7 +39,25 @@ def make_main_keyboard() -> ReplyKeyboardMarkup:
             ],
         ],
         resize_keyboard=True,
+        input_field_placeholder="Выбери действие или введи команду",
     )
+
+
+def build_guides_keyboard(chat_id: int) -> InlineKeyboardMarkup | None:
+    guides = storage.list_guides(chat_id)
+    if not guides:
+        return None
+    buttons = []
+    for key in sorted(guides.keys()):
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=key,
+                    callback_data=f"{GUIDE_CALLBACK_PREFIX}{key}",
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
@@ -245,11 +268,11 @@ async def cmd_guides(message: Message) -> None:
     if not guides:
         await message.reply("Для этого чата ещё нет ни одного гайда.")
         return
-    lines = ["Список доступных гайдов:"]
+    keyboard = build_guides_keyboard(chat_id)
+    lines = ["Выбери гайд кнопкой ниже или введи /guide <ключ>:"]
     for key in sorted(guides.keys()):
-        lines.append(f"- {key}")
-    lines.append("\nИспользуй /guide <ключ>, чтобы получить гайд.")
-    await message.reply("\n".join(lines))
+        lines.append(f"• {key}")
+    await message.reply("\n".join(lines), reply_markup=keyboard)
 async def handle_quick_buttons(message: Message) -> None:
     text = (message.text or "").strip().lower()
     if text == "поиск гайда":
@@ -260,6 +283,24 @@ async def handle_quick_buttons(message: Message) -> None:
         await cmd_myrank(message)
     elif text == "список рангов":
         await cmd_ranks(message)
+
+
+async def handle_guide_callback(callback: CallbackQuery) -> None:
+    data = callback.data or ""
+    if not data.startswith(GUIDE_CALLBACK_PREFIX):
+        return
+    key = data[len(GUIDE_CALLBACK_PREFIX) :]
+    message = callback.message
+    if message is None:
+        await callback.answer("Сообщение не найдено", show_alert=True)
+        return
+    chat_id = message.chat.id
+    text = storage.get_guide(chat_id, key)
+    if text:
+        await callback.answer()
+        await message.answer(text)
+    else:
+        await callback.answer("Гайд не найден", show_alert=True)
 
 
 async def on_message(message: Message) -> None:
@@ -289,6 +330,17 @@ async def main() -> None:
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
 
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Запустить бота"),
+            BotCommand(command="help", description="Список команд"),
+            BotCommand(command="myrank", description="Показать мой ранг"),
+            BotCommand(command="ranks", description="Список рангов"),
+            BotCommand(command="guides", description="Список гайдов"),
+            BotCommand(command="guide", description="Показать гайд по ключу"),
+        ]
+    )
+
     dp.message.register(cmd_start, CommandStart())
     dp.message.register(cmd_help, Command("help"))
     dp.message.register(cmd_myrank, Command("myrank"))
@@ -301,6 +353,7 @@ async def main() -> None:
     dp.message.register(cmd_guides, Command("guides"))
     dp.message.register(handle_quick_buttons)
     dp.message.register(on_message)
+    dp.callback_query.register(handle_guide_callback)
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
