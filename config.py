@@ -30,7 +30,8 @@ DEFAULT_GUIDES = {
         "Atmosphere (https://github.com/Atmosphere-NX/Atmosphere):\n"
         "1) На странице релизов скачай последний atmosphere-*.zip и соответствующий fusee.bin.\n"
         "2) Распакуй содержимое архива в корень microSD, сохрани структуру /atmosphere.\n"
-        "3) Скопируй fusee.bin для загрузчика (Hekate или напрямую через TegraRcmGUI).\n+        "4) Загрузи приставку в RCM и запусти fusee.bin, затем следуй инструкциям Atmosphere.\n"
+        "3) Скопируй fusee.bin для загрузчика (Hekate или напрямую через TegraRcmGUI).\n"
+        "4) Загрузи приставку в RCM и запусти fusee.bin, затем следуй инструкциям Atmosphere.\n"
     ),
     "switch_hekate_backup": (
         "Hekate (https://github.com/CTCaer/hekate):\n"
