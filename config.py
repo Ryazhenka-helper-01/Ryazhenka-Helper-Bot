@@ -7,15 +7,24 @@ DATA_FILE = "data.json"
 XP_PER_MESSAGE = 1
 XP_COOLDOWN_SECONDS = 0
 
+HELP_KEYWORDS = [
+    "нужна помощь",
+    "помогите",
+    "помоги",
+    "что делать",
+    "не работает",
+    "help",
+]
+
 DEFAULT_RANKS = [
     {"xp_min": 0, "name": "F"},
-    {"xp_min": 100, "name": "D"},
-    {"xp_min": 200, "name": "C"},
-    {"xp_min": 300, "name": "B"},
-    {"xp_min": 400, "name": "A"},
-    {"xp_min": 500, "name": "S"},
-    {"xp_min": 600, "name": "S+"},
-    {"xp_min": 700, "name": "S++"},
+    {"xp_min": 10, "name": "D"},
+    {"xp_min": 20, "name": "C"},
+    {"xp_min": 30, "name": "B"},
+    {"xp_min": 40, "name": "A"},
+    {"xp_min": 50, "name": "S"},
+    {"xp_min": 60, "name": "S+"},
+    {"xp_min": 70, "name": "S++"},
 ]
 
 DEFAULT_GUIDES = {

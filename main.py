@@ -90,6 +90,14 @@ def build_guides_keyboard(chat_id: int) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def is_help_request(text: str | None) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    keywords = getattr(config, "HELP_KEYWORDS", [])
+    return any(keyword in lowered for keyword in keywords)
+
+
 async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
     member = await bot.get_chat_member(chat_id, user_id)
     return member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}
@@ -142,10 +150,7 @@ async def cmd_help(message: Message) -> None:
         "/setguide <ключ> <текст> – создать/обновить гайд\n"
         "/delguide <ключ> – удалить гайд\n"
     )
-    sent = await message.reply(text)
-    asyncio.create_task(
-        schedule_delete_message(message.bot, sent.chat.id, sent.message_id)
-    )
+    await message.reply(text)
 
 
 async def cmd_myrank(message: Message) -> None:
@@ -383,7 +388,11 @@ async def on_message(message: Message) -> None:
         return
     if not message.text or message.text.startswith("/"):
         return
-    await handle_quick_buttons(message)
+    handled = await handle_quick_buttons(message)
+    if handled:
+        return
+    if not is_help_request(message.text):
+        return
     chat_id = message.chat.id
     user_id = user.id
     now_ts = int(time.time())
