@@ -155,7 +155,8 @@ async def cmd_help(message: Message) -> None:
         "/resetranks <кол-во> (в ответ на сообщение) – снять сообщения/ранг\n"
         "/setguide <ключ> <текст> – создать/обновить гайд\n"
         "/delguide <ключ> – удалить гайд\n"
-        "/addxp <кол-во> (в ответ на сообщение) – вручную выдать сообщения/ранг\n\n"
+        "/addxp <кол-во> (в ответ на сообщение) – вручную выдать сообщения/ранг\n"
+        "/leavebot – удалить бота из чата\n\n"
         "Только в личном чате с ботом:\n"
         "/keywords – показать ключевые фразы\n"
         "/addkeyword <фраза> – добавить фразу\n"
@@ -312,6 +313,21 @@ async def cmd_delguide(message: Message, bot: Bot) -> None:
         await message.reply(f"Гайд '{key}' удалён.")
     else:
         await message.reply(f"Гайд с ключом '{key}' не найден.")
+
+
+async def cmd_leavebot(message: Message, bot: Bot) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    if not await is_user_admin(bot, chat_id, user.id):
+        await message.reply("Только админ чата может удалить бота.")
+        return
+    await message.reply("Хорошо, ухожу из чата. Всегда можно добавить меня снова! 👋")
+    await bot.leave_chat(chat_id)
 
 
 async def cmd_addxp(message: Message, bot: Bot) -> None:
@@ -556,6 +572,7 @@ async def main() -> None:
     dp.message.register(cmd_reset_ranks, Command("resetranks"))
     dp.message.register(cmd_setguide, Command("setguide"))
     dp.message.register(cmd_delguide, Command("delguide"))
+    dp.message.register(cmd_leavebot, Command("leavebot"))
     dp.message.register(cmd_guide, Command("guide"))
     dp.message.register(cmd_guides, Command("guides"))
     dp.message.register(cmd_keywords, Command("keywords"))
