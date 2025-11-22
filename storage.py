@@ -37,6 +37,9 @@ class BotStorage:
                     combined.update(legacy_guides)
             self.data["guides"] = combined
             changed = True
+        if "keywords" not in self.data or not isinstance(self.data.get("keywords"), list):
+            self.data["keywords"] = list(getattr(config, "HELP_KEYWORDS", []))
+            changed = True
         if changed:
             self._save()
 
@@ -47,6 +50,14 @@ class BotStorage:
             self.data["guides"] = guides
             self._save()
         return guides
+
+    def _get_keywords(self) -> List[str]:
+        keywords = self.data.get("keywords")
+        if keywords is None or not isinstance(keywords, list):
+            keywords = list(getattr(config, "HELP_KEYWORDS", []))
+            self.data["keywords"] = keywords
+            self._save()
+        return keywords
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,3 +175,47 @@ class BotStorage:
 
     def list_guides(self, chat_id: int) -> Dict[str, str]:
         return dict(self._get_global_guides())
+
+    def list_keywords(self) -> List[str]:
+        return list(self._get_keywords())
+
+    def add_keyword(self, keyword: str) -> bool:
+        cleaned = keyword.strip().lower()
+        if not cleaned:
+            return False
+        keywords = self._get_keywords()
+        if cleaned in keywords:
+            return False
+        keywords.append(cleaned)
+        self._save()
+        return True
+
+    def delete_keyword(self, keyword: str) -> bool:
+        cleaned = keyword.strip().lower()
+        if not cleaned:
+            return False
+        keywords = self._get_keywords()
+        if cleaned in keywords:
+            keywords.remove(cleaned)
+            self._save()
+            return True
+        return False
+
+    def add_manual_xp(
+        self, chat_id: int, user_id: int, amount: int
+    ) -> Tuple[int, str, str, bool]:
+        if amount == 0:
+            user = self.get_user(chat_id, user_id)
+            xp = int(user.get("xp", 0))
+            rank = self.get_rank_for_xp(chat_id, xp)
+            return xp, rank, rank, False
+        chat = self._get_chat(chat_id)
+        user = self.get_user(chat_id, user_id)
+        old_xp = int(user.get("xp", 0))
+        old_rank = self.get_rank_for_xp(chat_id, old_xp)
+        new_xp = max(0, old_xp + int(amount))
+        user["xp"] = new_xp
+        new_rank = self.get_rank_for_xp(chat_id, new_xp)
+        leveled_up = new_rank != old_rank
+        self._save()
+        return new_xp, old_rank, new_rank, leveled_up

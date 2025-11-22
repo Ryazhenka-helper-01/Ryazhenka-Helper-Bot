@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 
 from aiogram import Bot, Dispatcher
@@ -67,6 +68,11 @@ def format_guide_button_label(key: str, text: str) -> str:
         header = header[:-1]
     if key.startswith("switch_") and header.lower().startswith("switch "):
         header = header[7:].lstrip("-–: ")
+    if key.startswith("ryazhenka_"):
+        if "(Ryazhenka" not in header:
+            header = f"{header} (Ryazhenka)"
+    else:
+        header = re.sub(r"\s*\([^)]*\)\s*$", "", header).strip()
     if key.startswith("ryazhenka_") and "(Ryazhenka" not in header:
         header = f"{header} (Ryazhenka)"
     return header or key
@@ -94,7 +100,7 @@ def is_help_request(text: str | None) -> bool:
     if not text:
         return False
     lowered = text.lower()
-    keywords = getattr(config, "HELP_KEYWORDS", [])
+    keywords = storage.list_keywords()
     return any(keyword in lowered for keyword in keywords)
 
 
@@ -149,6 +155,11 @@ async def cmd_help(message: Message) -> None:
         "/resetranks – сбросить ранги по умолчанию (F–S++)\n"
         "/setguide <ключ> <текст> – создать/обновить гайд\n"
         "/delguide <ключ> – удалить гайд\n"
+        "/addxp <кол-во> (в ответ на сообщение) – вручную выдать сообщения/ранг\n\n"
+        "Только в личном чате с ботом:\n"
+        "/keywords – показать ключевые фразы\n"
+        "/addkeyword <фраза> – добавить фразу\n"
+        "/delkeyword <фраза> – удалить фразу\n"
     )
     await message.reply(text)
 
@@ -276,6 +287,92 @@ async def cmd_delguide(message: Message, bot: Bot) -> None:
         await message.reply(f"Гайд '{key}' удалён.")
     else:
         await message.reply(f"Гайд с ключом '{key}' не найден.")
+
+
+async def cmd_addxp(message: Message, bot: Bot) -> None:
+    if message.chat.type not in group_types:
+        await message.reply("Команда работает только в группах.")
+        return
+    user = message.from_user
+    if user is None:
+        return
+    chat_id = message.chat.id
+    if not await is_user_admin(bot, chat_id, user.id):
+        await message.reply("Только админ чата может выдавать сообщения другим участникам.")
+        return
+    parts = message.text.split(maxsplit=1) if message.text else []
+    if len(parts) < 2:
+        await message.reply("Использование: /addxp <количество> (команда должна быть ответом на сообщение участника)")
+        return
+    try:
+        amount = int(parts[1].strip())
+    except ValueError:
+        await message.reply("Количество должно быть числом.")
+        return
+    if amount <= 0:
+        await message.reply("Количество должно быть больше нуля.")
+        return
+    reply = message.reply_to_message
+    if not reply or not reply.from_user or reply.from_user.is_bot:
+        await message.reply("Команда должна быть ответом на сообщение участника.")
+        return
+    target = reply.from_user
+    new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(chat_id, target.id, amount)
+    text = (
+        f"Выдано {amount} очков {target.full_name or target.username}.")
+    if leveled_up:
+        text += f" Новый ранг: {new_rank} (всего: {new_xp})."
+    else:
+        text += f" Текущее количество: {new_xp}, ранг: {new_rank}."
+    await message.reply(text)
+
+
+async def ensure_private_chat(message: Message) -> bool:
+    if message.chat.type != ChatType.PRIVATE:
+        await message.reply("Эта команда доступна только в личном чате с ботом.")
+        return False
+    return True
+
+
+async def cmd_keywords(message: Message) -> None:
+    if not await ensure_private_chat(message):
+        return
+    keywords = storage.list_keywords()
+    if not keywords:
+        await message.reply("Пока нет ни одного ключевого слова.")
+        return
+    lines = ["Ключевые фразы, которые дают XP:"]
+    for word in keywords:
+        lines.append(f"• {word}")
+    await message.reply("\n".join(lines))
+
+
+async def cmd_addkeyword(message: Message) -> None:
+    if not await ensure_private_chat(message):
+        return
+    parts = message.text.split(maxsplit=1) if message.text else []
+    if len(parts) < 2:
+        await message.reply("Использование: /addkeyword <фраза>")
+        return
+    phrase = parts[1]
+    if storage.add_keyword(phrase):
+        await message.reply("Фраза добавлена.")
+    else:
+        await message.reply("Не удалось добавить фразу (возможно, она уже есть или пуста).")
+
+
+async def cmd_delkeyword(message: Message) -> None:
+    if not await ensure_private_chat(message):
+        return
+    parts = message.text.split(maxsplit=1) if message.text else []
+    if len(parts) < 2:
+        await message.reply("Использование: /delkeyword <фраза>")
+        return
+    phrase = parts[1]
+    if storage.delete_keyword(phrase):
+        await message.reply("Фраза удалена.")
+    else:
+        await message.reply("Фраза не найдена.")
 
 
 async def cmd_guide(message: Message) -> None:
@@ -427,12 +524,16 @@ async def main() -> None:
     dp.message.register(cmd_help, Command("help"))
     dp.message.register(cmd_myrank, Command("myrank"))
     dp.message.register(cmd_addrank, Command("addrank"))
+    dp.message.register(cmd_addxp, Command("addxp"))
     dp.message.register(cmd_ranks, Command("ranks"))
     dp.message.register(cmd_reset_ranks, Command("resetranks"))
     dp.message.register(cmd_setguide, Command("setguide"))
     dp.message.register(cmd_delguide, Command("delguide"))
     dp.message.register(cmd_guide, Command("guide"))
     dp.message.register(cmd_guides, Command("guides"))
+    dp.message.register(cmd_keywords, Command("keywords"))
+    dp.message.register(cmd_addkeyword, Command("addkeyword"))
+    dp.message.register(cmd_delkeyword, Command("delkeyword"))
     dp.message.register(on_message)
     dp.callback_query.register(handle_guide_callback)
     dp.message_reaction.register(on_reaction)
