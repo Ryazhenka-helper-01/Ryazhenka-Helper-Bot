@@ -61,4 +61,28 @@ DEFAULT_GUIDES = {
         "3) Загрузись в Hekate и выбери профиль switchroot Android.\n"
         "4) После первого запуска настрой Google Apps/Aurora Store согласно гайду репозитория.\n"
     ),
+    "ryazhenka_features": (
+        "Ryazhenka — ключевые особенности (Ryazhenka):\n"
+        "- Полная автоматизация: настройка прошивки за 5 минут.\n"
+        "- Современный UI: темы, анимации, оверлеи Ryazhahand.\n"
+        "- Максимальная безопасность: защита от банов и брика.\n"
+        "- Автообновления и готовность к играм.\n"
+        "- Основано на Atmosphere 1.8.0+, Hekate 6.2.0+, с автоматическими sigpatches.\n"
+        "Источник: https://github.com/Dimasick-git/Ryzhenka"
+    ),
+    "ryazhenka_quick_install": (
+        "Быстрая установка Ryazhenka (Ryazhenka):\n"
+        "1) Скачай последний релиз: https://github.com/Dimasick-git/Ryzhenka/releases/latest\n"
+        "2) Распакуй архив в корень microSD (FAT32).\n"
+        "3) Вставь карту в Switch и войди в RCM.\n"
+        "4) Запусти Hekate и выбери \"Ryazhenka CFW\".\n"
+        "5) Готово — прошивка установлена.\n"
+    ),
+    "ryazhenka_support": (
+        "Где искать помощь по Ryazhenka (Ryazhenka):\n"
+        "1) Проверь FAQ проекта — часто задаваемые вопросы уже там.\n"
+        "2) Просмотри Issues на GitHub: https://github.com/Dimasick-git/Ryzhenka/issues\n"
+        "3) Создай новый Issue с подробным описанием проблемы.\n"
+        "4) Подключись к Telegram-сообществу Ryazhenka для быстрой поддержки.\n"
+    ),
 }
