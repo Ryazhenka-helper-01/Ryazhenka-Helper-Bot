@@ -277,19 +277,26 @@ async def cmd_guides(message: Message) -> None:
     for key in sorted(guides.keys()):
         lines.append(f"• {key}")
     await message.reply("\n".join(lines), reply_markup=keyboard)
-async def handle_quick_buttons(message: Message) -> None:
+async def handle_quick_buttons(message: Message) -> bool:
     text = (message.text or "").strip().lower()
+    if not text:
+        return False
     if text == "поиск гайда":
         await message.reply("Напиши /guide <ключ>. Список ключей: /guides")
-    elif text == "список гайдов":
+        return True
+    if text == "список гайдов":
         await cmd_guides(message)
-    elif text == "мой ранг":
+        return True
+    if text == "мой ранг":
         await cmd_myrank(message)
-    elif text == "список рангов":
+        return True
+    if text == "список рангов":
         await cmd_ranks(message)
-    elif text == "помощь":
+        return True
+    if text == "помощь":
         await cmd_help(message)
-    await message.continue_propagation()
+        return True
+    return False
 
 
 async def handle_guide_callback(callback: CallbackQuery) -> None:
@@ -343,6 +350,7 @@ async def on_message(message: Message) -> None:
         return
     if not message.text or message.text.startswith("/"):
         return
+    await handle_quick_buttons(message)
     chat_id = message.chat.id
     user_id = user.id
     now_ts = int(time.time())
@@ -383,7 +391,6 @@ async def main() -> None:
     dp.message.register(cmd_delguide, Command("delguide"))
     dp.message.register(cmd_guide, Command("guide"))
     dp.message.register(cmd_guides, Command("guides"))
-    dp.message.register(handle_quick_buttons)
     dp.message.register(on_message)
     dp.callback_query.register(handle_guide_callback)
     dp.message_reaction.register(on_reaction)
