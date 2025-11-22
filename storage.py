@@ -13,6 +13,7 @@ class BotStorage:
         self.path = Path(path)
         self.data: Dict[str, Any] = {"chats": {}}
         self._load()
+        self._ensure_globals()
 
     def _load(self) -> None:
         if self.path.exists():
@@ -23,6 +24,29 @@ class BotStorage:
                 self.data = {"chats": {}}
         if "chats" not in self.data:
             self.data["chats"] = {}
+
+    def _ensure_globals(self) -> None:
+        changed = False
+        if "guides" not in self.data or not isinstance(self.data.get("guides"), dict):
+            combined = dict(getattr(config, "DEFAULT_GUIDES", {}))
+            # migrate legacy per-chat guides if present
+            for chat in self.data.get("chats", {}).values():
+                settings = chat.get("settings") or {}
+                legacy_guides = settings.get("guides")
+                if isinstance(legacy_guides, dict):
+                    combined.update(legacy_guides)
+            self.data["guides"] = combined
+            changed = True
+        if changed:
+            self._save()
+
+    def _get_global_guides(self) -> Dict[str, str]:
+        guides = self.data.get("guides")
+        if guides is None:
+            guides = dict(getattr(config, "DEFAULT_GUIDES", {}))
+            self.data["guides"] = guides
+            self._save()
+        return guides
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +64,6 @@ class BotStorage:
                     "xp_per_message": config.XP_PER_MESSAGE,
                     "xp_cooldown_seconds": config.XP_COOLDOWN_SECONDS,
                     "ranks": list(config.DEFAULT_RANKS),
-                    "guides": dict(getattr(config, "DEFAULT_GUIDES", {})),
                 },
                 "users": {},
             }
@@ -122,28 +145,22 @@ class BotStorage:
         self._save()
 
     def set_guide(self, chat_id: int, key: str, text: str) -> None:
-        settings = self.get_chat_settings(chat_id)
-        guides = settings.get("guides") or {}
+        guides = self._get_global_guides()
         guides[key.lower()] = text
-        settings["guides"] = guides
         self._save()
 
     def delete_guide(self, chat_id: int, key: str) -> bool:
-        settings = self.get_chat_settings(chat_id)
-        guides = settings.get("guides") or {}
+        guides = self._get_global_guides()
         key = key.lower()
         if key in guides:
             del guides[key]
-            settings["guides"] = guides
             self._save()
             return True
         return False
 
     def get_guide(self, chat_id: int, key: str) -> str | None:
-        settings = self.get_chat_settings(chat_id)
-        guides = settings.get("guides") or {}
+        guides = self._get_global_guides()
         return guides.get(key.lower())
 
     def list_guides(self, chat_id: int) -> Dict[str, str]:
-        settings = self.get_chat_settings(chat_id)
-        return dict(settings.get("guides") or {})
+        return dict(self._get_global_guides())

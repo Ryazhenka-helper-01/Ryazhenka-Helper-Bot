@@ -35,10 +35,10 @@ DEFAULT_GUIDES = {
     ),
     "ryazhenka_hekate_backup": (
         "Ryazhenka Hekate Backup (Ryazhenka):\n"
-        "1) Следуй инструкции от команды: https://github.com/Dimasick-git/Ryzhenka (раздел Backup).\n"
-        "2) Скачай рекомендованный комплект Hekate из релиза Ryazhenka и распакуй на microSD.\n"
-        "3) Войди в RCM, запусти Hekate и открой 'Tools → Backup eMMC'.\n"
-        "4) Создай BOOT0/1 и eMMC RAW GPP, перенеси на ПК и проверь хэши.\n"
+        "1) Ryazhahand >>> Packages >>> Ryazhenkabestcfw Tuner >>> Настроить частоты (CPU,GPU,RAM).\n"
+        "2) Управление Бэкапами >>>  Создаём Бэкап.\n"
+        "3) Войди в Homebrew >>> All-in-One Switch Updater >>> Сторонние загрузки >>> Ryazhenka Best CFW >>> Подтвердить >>> Да/Нет — по ситуации (подробнее в видео ниже).\n"
+        "4) Управление Бэкапами >>>  Restore Backup >>> выбери нужный по дате.\n"
         "5) Для наглядности используй видео-гайд: https://youtube.com/watch?v=x09UY5gCssw&si=BnNAQQ_K9KBXWOEd\n"
     ),
     "switch_sigpatch": (

@@ -3,6 +3,7 @@ import time
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatMemberStatus, ChatType
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message,
@@ -27,6 +28,16 @@ group_types = {ChatType.GROUP, ChatType.SUPERGROUP}
 GUIDE_CALLBACK_PREFIX = "guide:"
 
 
+async def schedule_delete_message(bot: Bot, chat_id: int, message_id: int, delay: int = 300) -> None:
+    try:
+        await asyncio.sleep(delay)
+        await bot.delete_message(chat_id, message_id)
+    except TelegramBadRequest:
+        pass
+    except Exception:
+        pass
+
+
 def make_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -47,16 +58,31 @@ def make_main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def format_guide_button_label(key: str, text: str) -> str:
+    if text:
+        header = text.strip().split("\n", 1)[0].strip()
+    else:
+        header = key
+    if header.endswith(":"):
+        header = header[:-1]
+    if key.startswith("switch_") and header.lower().startswith("switch "):
+        header = header[7:].lstrip("-–: ")
+    if key.startswith("ryazhenka_") and "(Ryazhenka" not in header:
+        header = f"{header} (Ryazhenka)"
+    return header or key
+
+
 def build_guides_keyboard(chat_id: int) -> InlineKeyboardMarkup | None:
     guides = storage.list_guides(chat_id)
     if not guides:
         return None
     buttons = []
     for key in sorted(guides.keys()):
+        label = format_guide_button_label(key, guides[key])
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text=key,
+                    text=label,
                     callback_data=f"{GUIDE_CALLBACK_PREFIX}{key}",
                 )
             ]
@@ -116,7 +142,10 @@ async def cmd_help(message: Message) -> None:
         "/setguide <ключ> <текст> – создать/обновить гайд\n"
         "/delguide <ключ> – удалить гайд\n"
     )
-    await message.reply(text)
+    sent = await message.reply(text)
+    asyncio.create_task(
+        schedule_delete_message(message.bot, sent.chat.id, sent.message_id)
+    )
 
 
 async def cmd_myrank(message: Message) -> None:
@@ -312,7 +341,11 @@ async def handle_guide_callback(callback: CallbackQuery) -> None:
     text = storage.get_guide(chat_id, key)
     if text:
         await callback.answer()
-        await message.answer(text)
+        sent = await message.answer(text)
+        bot = message.bot
+        asyncio.create_task(
+            schedule_delete_message(bot, sent.chat.id, sent.message_id)
+        )
     else:
         await callback.answer("Гайд не найден", show_alert=True)
 
