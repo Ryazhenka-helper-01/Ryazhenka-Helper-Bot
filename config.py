@@ -33,12 +33,13 @@ DEFAULT_GUIDES = {
         "3) Скопируй fusee.bin для загрузчика (Hekate или напрямую через TegraRcmGUI).\n"
         "4) Загрузи приставку в RCM и запусти fusee.bin, затем следуй инструкциям Atmosphere.\n"
     ),
-    "switch_hekate_backup": (
-        "Hekate (https://github.com/CTCaer/hekate):\n"
-        "1) Скачай последний релиз hekate_ctcaer.bin и папку /bootloader.\n"
-        "2) Скопируй файлы в корень microSD, отформатированной в FAT32.\n"
-        "3) Запусти Hekate через RCM и перейди в 'Tools → Backup eMMC'.\n"
-        "4) Сохрани BOOT0/1 и eMMC RAW GPP на ПК, проверь хэши и храни в безопасном месте.\n"
+    "ryazhenka_hekate_backup": (
+        "Ryazhenka Hekate Backup (Ryazhenka):\n"
+        "1) Следуй инструкции от команды: https://github.com/Dimasick-git/Ryzhenka (раздел Backup).\n"
+        "2) Скачай рекомендованный комплект Hekate из релиза Ryazhenka и распакуй на microSD.\n"
+        "3) Войди в RCM, запусти Hekate и открой 'Tools → Backup eMMC'.\n"
+        "4) Создай BOOT0/1 и eMMC RAW GPP, перенеси на ПК и проверь хэши.\n"
+        "5) Для наглядности используй видео-гайд: https://youtube.com/watch?v=x09UY5gCssw&si=BnNAQQ_K9KBXWOEd\n"
     ),
     "switch_sigpatch": (
         "Sigpatches (https://github.com/ITotalJustice/patches):\n"
