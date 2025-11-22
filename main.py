@@ -173,7 +173,7 @@ async def cmd_myrank(message: Message) -> None:
         return
     chat_id = message.chat.id
     user_id = user.id
-    user_data = storage.get_user(chat_id, user_id)
+    user_data = storage.get_user(chat_id, user_id, user.username)
     xp = int(user_data.get("xp", 0))
     rank = storage.get_rank_for_xp(chat_id, xp)
     await message.reply(f"Твой ранг: {rank}\nСообщений: {xp}")
@@ -252,7 +252,9 @@ async def cmd_reset_ranks(message: Message, bot: Bot) -> None:
         await message.reply("Команда должна быть ответом на сообщение участника.")
         return
     target = reply.from_user
-    new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(chat_id, target.id, -amount)
+    new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(
+        chat_id, target.id, target.username, -amount
+    )
     text = (
         f"Снято {amount} очков у {target.full_name or target.username}.")
     if leveled_up:
@@ -340,7 +342,9 @@ async def cmd_addxp(message: Message, bot: Bot) -> None:
         await message.reply("Команда должна быть ответом на сообщение участника.")
         return
     target = reply.from_user
-    new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(chat_id, target.id, amount)
+    new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(
+        chat_id, target.id, target.username, amount
+    )
     text = (
         f"Выдано {amount} очков {target.full_name or target.username}.")
     if leveled_up:
@@ -490,7 +494,7 @@ async def on_reaction(update: MessageReactionUpdated) -> None:
     user_id = user.id
     now_ts = int(time.time())
     new_xp, old_rank, new_rank, leveled_up = storage.add_message_xp(
-        chat_id, user_id, now_ts
+        chat_id, user_id, user.username, now_ts
     )
     if leveled_up:
         name = user.full_name or user.username or "участник"

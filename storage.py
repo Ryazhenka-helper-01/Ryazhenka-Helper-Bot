@@ -40,6 +40,29 @@ class BotStorage:
         if "keywords" not in self.data or not isinstance(self.data.get("keywords"), list):
             self.data["keywords"] = list(getattr(config, "HELP_KEYWORDS", []))
             changed = True
+        if "global_users" not in self.data or not isinstance(
+            self.data.get("global_users"), dict
+        ):
+            global_users: Dict[str, Any] = {}
+            # migrate legacy per-chat users
+            for chat in self.data.get("chats", {}).values():
+                legacy_users = chat.get("users") or {}
+                for legacy_key, legacy_data in legacy_users.items():
+                    key = str(legacy_key)
+                    target = global_users.setdefault(
+                        key,
+                        {
+                            "xp": 0,
+                            "last_message_ts": 0,
+                        },
+                    )
+                    target["xp"] += int(legacy_data.get("xp", 0))
+                    target["last_message_ts"] = max(
+                        int(target.get("last_message_ts", 0)),
+                        int(legacy_data.get("last_message_ts", 0)),
+                    )
+            self.data["global_users"] = global_users
+            changed = True
         if changed:
             self._save()
 
@@ -58,6 +81,21 @@ class BotStorage:
             self.data["keywords"] = keywords
             self._save()
         return keywords
+
+    def _resolve_user_key(self, user_id: int, username: str | None) -> str:
+        if username:
+            return username.lower()
+        return str(user_id)
+
+    def _get_global_user(self, user_id: int, username: str | None) -> Dict[str, Any]:
+        users = self.data.setdefault("global_users", {})
+        key = self._resolve_user_key(user_id, username)
+        if key not in users:
+            users[key] = {
+                "xp": 0,
+                "last_message_ts": 0,
+            }
+        return users[key]
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,16 +121,12 @@ class BotStorage:
     def get_chat_settings(self, chat_id: int) -> Dict[str, Any]:
         return self._get_chat(chat_id)["settings"]
 
-    def get_user(self, chat_id: int, user_id: int) -> Dict[str, Any]:
-        chat = self._get_chat(chat_id)
-        users = chat["users"]
-        key = str(user_id)
-        if key not in users:
-            users[key] = {
-                "xp": 0,
-                "last_message_ts": 0,
-            }
-        return users[key]
+    def get_user(
+        self, chat_id: int, user_id: int, username: str | None = None
+    ) -> Dict[str, Any]:
+        # chat_id kept for compatibility/logical separation of ranks
+        self._get_chat(chat_id)
+        return self._get_global_user(user_id, username)
 
     def _get_ranks(self, chat_id: int) -> List[Dict[str, Any]]:
         settings = self.get_chat_settings(chat_id)
@@ -114,13 +148,14 @@ class BotStorage:
         self,
         chat_id: int,
         user_id: int,
+        username: str | None,
         now_ts: int | None = None,
     ) -> Tuple[int, str, str, bool]:
         if now_ts is None:
             now_ts = int(time.time())
         chat = self._get_chat(chat_id)
         settings = chat["settings"]
-        user = self.get_user(chat_id, user_id)
+        user = self.get_user(chat_id, user_id, username)
         cooldown = int(settings.get("xp_cooldown_seconds", config.XP_COOLDOWN_SECONDS))
         xp_per_message = int(settings.get("xp_per_message", config.XP_PER_MESSAGE))
 
@@ -202,15 +237,15 @@ class BotStorage:
         return False
 
     def add_manual_xp(
-        self, chat_id: int, user_id: int, amount: int
+        self, chat_id: int, user_id: int, username: str | None, amount: int
     ) -> Tuple[int, str, str, bool]:
         if amount == 0:
-            user = self.get_user(chat_id, user_id)
+            user = self.get_user(chat_id, user_id, username)
             xp = int(user.get("xp", 0))
             rank = self.get_rank_for_xp(chat_id, xp)
             return xp, rank, rank, False
         chat = self._get_chat(chat_id)
-        user = self.get_user(chat_id, user_id)
+        user = self.get_user(chat_id, user_id, username)
         old_xp = int(user.get("xp", 0))
         old_rank = self.get_rank_for_xp(chat_id, old_xp)
         new_xp = max(0, old_xp + int(amount))
