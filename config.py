@@ -61,15 +61,6 @@ DEFAULT_GUIDES = {
         "3) Загрузись в Hekate и выбери профиль switchroot Android.\n"
         "4) После первого запуска настрой Google Apps/Aurora Store согласно гайду репозитория.\n"
     ),
-    "ryazhenka_features": (
-        "Ryazhenka — ключевые особенности (Ryazhenka):\n"
-        "- Полная автоматизация: настройка прошивки за 5 минут.\n"
-        "- Современный UI: темы, анимации, оверлеи Ryazhahand.\n"
-        "- Максимальная безопасность: защита от банов и брика.\n"
-        "- Автообновления и готовность к играм.\n"
-        "- Основано на Atmosphere 1.8.0+, Hekate 6.2.0+, с автоматическими sigpatches.\n"
-        "Источник: https://github.com/Dimasick-git/Ryzhenka"
-    ),
     "ryazhenka_quick_install": (
         "Быстрая установка Ryazhenka (Ryazhenka):\n"
         "1) Скачай последний релиз: https://github.com/Dimasick-git/Ryzhenka/releases/latest\n"
@@ -84,5 +75,13 @@ DEFAULT_GUIDES = {
         "2) Просмотри Issues на GitHub: https://github.com/Dimasick-git/Ryzhenka/issues\n"
         "3) Создай новый Issue с подробным описанием проблемы.\n"
         "4) Подключись к Telegram-сообществу Ryazhenka для быстрой поддержки.\n"
+    ),
+    "ryazhenka_battery_fix": (
+        "Ryazhenka Battery Fix (Ryazhenka):\n"
+        "1) Полностью зарядите Switch до 100% в доке, не прерывая процесс.\n"
+        "2) Включите Ryazhenka и запустите встроенный скрипт Battery Fix (раздел Tools → Maintenance).\n"
+        "3) Дождитесь окончания калибровки — консоль автоматически перезагрузится.\n"
+        "4) Разрядите консоль до 1-5%, затем снова зарядите до 100% для закрепления результата.\n"
+        "5) При повторных проблемах проверьте FAQ/Issues: https://github.com/Dimasick-git/Ryzhenka/issues\n"
     ),
 }
