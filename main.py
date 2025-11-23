@@ -887,6 +887,27 @@ async def cmd_guide(message: Message) -> None:
     await reply_with_cleanup(message, text, auto_delete=False)
 
 
+async def cmd_guides(message: Message) -> None:
+    if message.chat.type not in group_types:
+        await reply_with_cleanup(message, "Команда работает только в группах.")
+        return
+    chat_id = message.chat.id
+    guides = storage.list_guides(chat_id)
+    if not guides:
+        await reply_with_cleanup(message, "Для этого чата ещё нет ни одного гайда.")
+        return
+    keyboard = build_guides_keyboard(chat_id)
+    lines = ["Выбери гайд кнопкой ниже или введи /guide <ключ>:"]
+    for key in sorted(guides.keys()):
+        lines.append(f"• {key}")
+    await reply_with_cleanup(
+        message,
+        "\n".join(lines),
+        reply_markup=keyboard,
+        auto_delete=False,
+    )
+
+
 async def on_reaction(update: MessageReactionUpdated) -> None:
     chat = update.chat
     if chat.type not in group_types:
