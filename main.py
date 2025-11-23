@@ -28,7 +28,7 @@ async def fetch_latest_release(session: aiohttp.ClientSession) -> dict | None:
     return data[0]
 
 
-def build_release_summary(release: dict) -> str:
+def build_release_summary(release: dict, changes: list[str] | None = None) -> str:
     tag = release.get("tag_name") or release.get("name") or "?"
     name = release.get("name") or "Без названия"
     published = format_datetime(release.get("published_at"))
@@ -42,11 +42,45 @@ def build_release_summary(release: dict) -> str:
     if url:
         lines.append(f"Ссылка: {url}")
     body = release.get("body")
-    if body:
+    if changes:
+        lines.append("\nИзменения:\n" + "\n".join(changes))
+    elif body:
         trimmed = body.strip()
         if trimmed:
             lines.append("\nОписание:\n" + trimmed)
     return "\n".join(lines)
+
+
+def build_release_changes(
+    previous_body: str | None, current_body: str | None
+) -> list[str]:
+    if not current_body:
+        return []
+    limit = int(getattr(config, "RELEASE_DIFF_LIMIT", 0) or 0)
+    current_lines = [line.rstrip() for line in current_body.strip().splitlines()]
+    if limit <= 0:
+        return [line for line in current_lines if line][:15]
+    if not previous_body:
+        return [line for line in current_lines if line][:limit]
+    previous_lines = [line.rstrip() for line in previous_body.strip().splitlines()]
+    diff = difflib.unified_diff(previous_lines, current_lines, lineterm="")
+    changes: list[str] = []
+    for line in diff:
+        if line.startswith(("---", "+++", "@@")):
+            continue
+        if line.startswith("+") and not line.startswith("++"):
+            content = line[1:].strip()
+            if content:
+                changes.append(f"+ {content}")
+        elif line.startswith("-") and not line.startswith("--"):
+            content = line[1:].strip()
+            if content:
+                changes.append(f"- {content}")
+        if len(changes) >= limit:
+            break
+    if not changes:
+        return [line for line in current_lines if line][:limit]
+    return changes
 
 
 async def broadcast_release(bot: Bot, summary: str) -> None:
@@ -71,12 +105,21 @@ async def refresh_release_info(
         if not release:
             return None, False
         tag = release.get("tag_name") or release.get("name")
-        last_tag, _, cached_summary = storage.get_last_release_info()
+        last_tag, _, cached_summary, last_body = storage.get_last_release_info()
         new_release = tag and tag != last_tag
+        current_body = release.get("body")
+        changes: list[str] | None = None
+        if new_release or force:
+            changes = build_release_changes(last_body, current_body)
         if not new_release and not force:
             return cached_summary, False
-        summary = build_release_summary(release)
-        storage.set_last_release_info(tag or "", release.get("published_at"), summary)
+        summary = build_release_summary(release, changes if changes else None)
+        storage.set_last_release_info(
+            tag or "",
+            release.get("published_at"),
+            summary,
+            current_body,
+        )
         should_broadcast = broadcast and new_release and last_tag is not None
         if should_broadcast and bot:
             await broadcast_release(bot, summary)
@@ -96,6 +139,7 @@ async def release_monitor(bot: Bot) -> None:
             logger.exception("Release monitor error: %s", exc)
         await asyncio.sleep(interval)
 import asyncio
+import difflib
 import logging
 import re
 import time
@@ -256,6 +300,8 @@ async def cmd_help(message: Message) -> None:
         "/myrank – показать твой ранг и количество сообщений\n"
         "/guide <ключ> – показать гайд\n"
         "/guides – список гайдов\n\n"
+        "Обновления прошивки:\n"
+        "/release – текущий релиз Ryazhenka\n\n"
         "Только админы группы:\n"
         "/addrank <сообщений> <название> – добавить ранг (порог по сообщениям)\n"
         "/ranks – список рангов и их пороги\n"
@@ -525,6 +571,30 @@ async def cmd_delkeyword(message: Message) -> None:
         await message.reply("Фраза не найдена.")
 
 
+async def cmd_release(message: Message) -> None:
+    if aiohttp is None:
+        await message.reply(
+            "Модуль aiohttp не установлен. Установи зависимости (`pip install -r requirements.txt`), и я смогу показывать релизы."
+        )
+        return
+    args = message.text.split(maxsplit=1) if message.text else []
+    force = False
+    if len(args) > 1:
+        force = args[1].strip().lower() in {"refresh", "update", "force"}
+    summary = None
+    if force:
+        summary, _ = await refresh_release_info(force=True)
+    else:
+        _, _, cached, _ = storage.get_last_release_info()
+        summary = cached
+        if not summary:
+            summary, _ = await refresh_release_info(force=True)
+    if summary:
+        await message.reply(summary)
+    else:
+        await message.reply("Информация о релизах пока недоступна. Попробуй позже.")
+
+
 async def cmd_guide(message: Message) -> None:
     if message.chat.type not in group_types:
         await message.reply("Команда работает только в группах.")
@@ -667,6 +737,7 @@ async def main() -> None:
             BotCommand(command="ranks", description="Список рангов"),
             BotCommand(command="guides", description="Список гайдов"),
             BotCommand(command="guide", description="Показать гайд по ключу"),
+            BotCommand(command="release", description="Последний релиз Ryazhenka"),
         ]
     )
 
@@ -686,6 +757,7 @@ async def main() -> None:
     dp.message.register(cmd_leavebot, Command("leavebot"))
     dp.message.register(cmd_guide, Command("guide"))
     dp.message.register(cmd_guides, Command("guides"))
+    dp.message.register(cmd_release, Command("release"))
     dp.message.register(cmd_keywords, Command("keywords"))
     dp.message.register(cmd_addkeyword, Command("addkeyword"))
     dp.message.register(cmd_delkeyword, Command("delkeyword"))

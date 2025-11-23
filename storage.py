@@ -185,21 +185,25 @@ class BotStorage:
     def get_release_cache(self) -> Dict[str, Any]:
         return self.data.setdefault("release_cache", {})
 
-    def get_last_release_info(self) -> Tuple[str | None, str | None, str | None]:
+    def get_last_release_info(
+        self,
+    ) -> Tuple[str | None, str | None, str | None, str | None]:
         cache = self.get_release_cache()
         return (
             cache.get("tag"),
             cache.get("published_at"),
             cache.get("summary"),
+            cache.get("body"),
         )
 
     def set_last_release_info(
-        self, tag: str, published_at: str | None, summary: str | None
+        self, tag: str, published_at: str | None, summary: str | None, body: str | None
     ) -> None:
         cache = self.get_release_cache()
         cache["tag"] = tag
         cache["published_at"] = published_at
         cache["summary"] = summary
+        cache["body"] = body
         self._save()
 
     def add_rank(self, chat_id: int, xp_min: int, name: str) -> None:
