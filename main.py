@@ -1036,6 +1036,53 @@ async def handle_release_callback(callback: CallbackQuery) -> None:
             )
 
 
+async def handle_quick_buttons(message: Message) -> bool:
+    text = (message.text or "").strip()
+    if not text:
+        return False
+    if text == "Поиск гайда":
+        await reply_with_cleanup(
+            message,
+            "Напиши /guide <ключ> или воспользуйся кнопками /guides.",
+        )
+        return True
+    if text == "Список гайдов":
+        keyboard = build_guides_keyboard(message.chat.id)
+        if keyboard is None:
+            await reply_with_cleanup(
+                message,
+                "Пока нет сохранённых гайдов. Добавь их через /setguide.",
+            )
+        else:
+            await reply_with_cleanup(
+                message,
+                "Выбери гайд из списка или используй /guide <ключ>:",
+                reply_markup=keyboard,
+                auto_delete=False,
+            )
+        return True
+    if text == "Мой ранг":
+        await cmd_myrank(message)
+        return True
+    if text == "Список рангов":
+        await cmd_ranks(message)
+        return True
+    if text == "Помощь":
+        await cmd_help(message)
+        return True
+    if text == "Проекты Ryazhenka":
+        await reply_with_cleanup(
+            message,
+            PROJECTS_RYAZHENKA_TEXT,
+            auto_delete=False,
+        )
+        return True
+    if text == "Релизы":
+        await send_release_list_message(message, force=False)
+        return True
+    return False
+
+
 async def main() -> None:
     if not config.BOT_TOKEN or config.BOT_TOKEN == "PASTE_YOUR_TOKEN_HERE":
         raise RuntimeError("Сначала укажи токен бота в файле config.py (BOT_TOKEN).")
