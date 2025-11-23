@@ -176,8 +176,19 @@ group_types = {ChatType.GROUP, ChatType.SUPERGROUP}
 
 GUIDE_CALLBACK_PREFIX = "guide:"
 
+PROJECTS_RYAZHENKA_TEXT = (
+    "Проекты Ryazhenka:\n"
+    "• Ryazhahand Overlay – https://github.com/Dimasick-git/Ryazhahand-Overlay\n"
+    "• Ryazhenkabestcfw Tuner – https://github.com/Dimasick-git/Ryazhenkabestcfw-Tuner\n"
+    "• RyazhaTune – https://github.com/Dimasick-git/RyazhaTune\n"
+    "• Ryazha Status Monitor – https://github.com/Dimasick-git/Ryazha-Status-Monitor"
+)
+
 
 logger = logging.getLogger(__name__)
+
+
+AUTO_DELETE_DELAY = int(getattr(config, "BOT_MESSAGE_TTL_SECONDS", 180))
 
 
 async def schedule_delete_message(bot: Bot, chat_id: int, message_id: int, delay: int = 300) -> None:
@@ -188,6 +199,45 @@ async def schedule_delete_message(bot: Bot, chat_id: int, message_id: int, delay
         pass
     except Exception:
         pass
+
+
+def _schedule_auto_delete(sent: Message, *, auto_delete: bool = True, delay: int | None = None) -> None:
+    if not auto_delete:
+        return
+    if sent.chat.type not in group_types:
+        return
+    ttl = AUTO_DELETE_DELAY if delay is None else delay
+    if ttl <= 0:
+        return
+    asyncio.create_task(
+        schedule_delete_message(sent.bot, sent.chat.id, sent.message_id, ttl)
+    )
+
+
+async def reply_with_cleanup(
+    message: Message,
+    text: str,
+    *,
+    auto_delete: bool = True,
+    delay: int | None = None,
+    **kwargs,
+) -> Message:
+    sent = await message.reply(text, **kwargs)
+    _schedule_auto_delete(sent, auto_delete=auto_delete, delay=delay)
+    return sent
+
+
+async def answer_with_cleanup(
+    message: Message,
+    text: str,
+    *,
+    auto_delete: bool = True,
+    delay: int | None = None,
+    **kwargs,
+) -> Message:
+    sent = await message.answer(text, **kwargs)
+    _schedule_auto_delete(sent, auto_delete=auto_delete, delay=delay)
+    return sent
 
 
 def make_main_keyboard() -> ReplyKeyboardMarkup:
@@ -203,6 +253,7 @@ def make_main_keyboard() -> ReplyKeyboardMarkup:
             ],
             [
                 KeyboardButton(text="Помощь"),
+                KeyboardButton(text="Проекты Ryazhenka"),
             ],
         ],
         resize_keyboard=True,
@@ -262,7 +313,7 @@ async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
 
 async def cmd_start(message: Message, bot: Bot) -> None:
     if message.chat.type in group_types:
-        await message.reply(
+        await reply_with_cleanup(
             "Привет! Я Ruzhenka-helper.\n"
             "Считаю активность участников и могу выдавать гайды.\n"
             "Напиши /help, чтобы посмотреть команды.",
@@ -283,12 +334,12 @@ async def cmd_start(message: Message, bot: Bot) -> None:
                     ]
                 ]
             )
-        await message.answer(
+        await answer_with_cleanup(
             "Привет! Я Ruzhenka-helper — бот для групп.\n"
             "Добавь меня в свой чат как админа и используй /help в чате.",
             reply_markup=keyboard,
         )
-        await message.answer(
+        await answer_with_cleanup(
             "Выбери действие на клавиатуре ниже.",
             reply_markup=make_main_keyboard(),
         )
@@ -315,12 +366,12 @@ async def cmd_help(message: Message) -> None:
         "/addkeyword <фраза> – добавить фразу\n"
         "/delkeyword <фраза> – удалить фразу\n"
     )
-    await message.reply(text)
+    await reply_with_cleanup(message, text)
 
 
 async def cmd_myrank(message: Message) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
@@ -330,80 +381,90 @@ async def cmd_myrank(message: Message) -> None:
     user_data = storage.get_user(chat_id, user_id, user.username)
     xp = int(user_data.get("xp", 0))
     rank = storage.get_rank_for_xp(chat_id, xp)
-    await message.reply(f"Твой ранг: {rank}\nСообщений: {xp}")
+    await reply_with_cleanup(message, f"Твой ранг: {rank}\nСообщений: {xp}")
 
 
 async def cmd_addrank(message: Message, bot: Bot) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может настраивать ранги.")
+        await reply_with_cleanup(message, "Только админ чата может настраивать ранги.")
         return
     parts = message.text.split(maxsplit=2) if message.text else []
     if len(parts) < 3:
-        await message.reply(
+        await reply_with_cleanup(
+            message,
             "Использование: /addrank <сообщений_минимум> <название ранга>"
         )
         return
     try:
         xp_min = int(parts[1])
     except ValueError:
-        await message.reply("Количество сообщений должно быть числом.")
+        await reply_with_cleanup(message, "Количество сообщений должно быть числом.")
         return
     name = parts[2].strip()
     if not name:
-        await message.reply("Название ранга не может быть пустым.")
+        await reply_with_cleanup(message, "Название ранга не может быть пустым.")
         return
     storage.add_rank(chat_id, xp_min, name)
-    await message.reply(f"Ранг '{name}' с порогом {xp_min} сообщений добавлен.")
+    await reply_with_cleanup(
+        message, f"Ранг '{name}' с порогом {xp_min} сообщений добавлен."
+    )
 
 
 async def cmd_ranks(message: Message) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     chat_id = message.chat.id
     ranks = storage.list_ranks(chat_id)
     if not ranks:
-        await message.reply("Для этого чата ещё нет рангов.")
+        await reply_with_cleanup(message, "Для этого чата ещё нет рангов.")
         return
     lines = ["Ранги для этого чата (по количеству сообщений):"]
     for r in ranks:
         lines.append(f"{r.get('xp_min', 0)} сообщений — {r.get('name', '')}")
-    await message.reply("\n".join(lines))
+    await reply_with_cleanup(message, "\n".join(lines))
 
 
 async def cmd_reset_ranks(message: Message, bot: Bot) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может снимать очки у участников.")
+        await reply_with_cleanup(
+            message, "Только админ чата может снимать очки у участников."
+        )
         return
     parts = message.text.split(maxsplit=1) if message.text else []
     if len(parts) < 2:
-        await message.reply("Использование: /resetranks <количество> (команда должна быть ответом на сообщение участника)")
+        await reply_with_cleanup(
+            message,
+            "Использование: /resetranks <количество> (команда должна быть ответом на сообщение участника)",
+        )
         return
     try:
         amount = int(parts[1].strip())
     except ValueError:
-        await message.reply("Количество должно быть числом.")
+        await reply_with_cleanup(message, "Количество должно быть числом.")
         return
     if amount <= 0:
-        await message.reply("Количество должно быть больше нуля.")
+        await reply_with_cleanup(message, "Количество должно быть больше нуля.")
         return
     reply = message.reply_to_message
     if not reply or not reply.from_user or reply.from_user.is_bot:
-        await message.reply("Команда должна быть ответом на сообщение участника.")
+        await reply_with_cleanup(
+            message, "Команда должна быть ответом на сообщение участника."
+        )
         return
     target = reply.from_user
     new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(
@@ -415,100 +476,114 @@ async def cmd_reset_ranks(message: Message, bot: Bot) -> None:
         text += f" Новый ранг: {new_rank} (всего: {new_xp})."
     else:
         text += f" Текущее количество: {new_xp}, ранг: {new_rank}."
-    await message.reply(text)
+    await reply_with_cleanup(message, text)
 
 
 async def cmd_setguide(message: Message, bot: Bot) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может настраивать гайды.")
+        await reply_with_cleanup(message, "Только админ чата может настраивать гайды.")
         return
     parts = message.text.split(maxsplit=2) if message.text else []
     if len(parts) < 3:
-        await message.reply("Использование: /setguide <ключ> <текст гайда>")
+        await reply_with_cleanup(message, "Использование: /setguide <ключ> <текст гайда>")
         return
     key = parts[1].strip().lower()
     text = parts[2].strip()
     if not key or not text:
-        await message.reply("Ключ и текст гайда не могут быть пустыми.")
+        await reply_with_cleanup(message, "Ключ и текст гайда не могут быть пустыми.")
         return
     storage.set_guide(chat_id, key, text)
-    await message.reply(f"Гайд '{key}' сохранён.")
+    await reply_with_cleanup(message, f"Гайд '{key}' сохранён.")
 
 
 async def cmd_delguide(message: Message, bot: Bot) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может удалять гайды.")
+        await reply_with_cleanup(message, "Только админ чата может удалять гайды.")
         return
     parts = message.text.split(maxsplit=1) if message.text else []
     if len(parts) < 2:
-        await message.reply("Использование: /delguide <ключ>")
+        await reply_with_cleanup(message, "Использование: /delguide <ключ>")
         return
     key = parts[1].strip().lower()
     if not key:
-        await message.reply("Ключ не может быть пустым.")
+        await reply_with_cleanup(message, "Ключ не может быть пустым.")
         return
     ok = storage.delete_guide(chat_id, key)
     if ok:
-        await message.reply(f"Гайд '{key}' удалён.")
+        await reply_with_cleanup(message, f"Гайд '{key}' удалён.")
     else:
-        await message.reply(f"Гайд с ключом '{key}' не найден.")
+        await reply_with_cleanup(
+            message, f"Гайд с ключом '{key}' не найден."
+        )
 
 
 async def cmd_leavebot(message: Message, bot: Bot) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может удалить бота.")
+        await reply_with_cleanup(message, "Только админ чата может удалить бота.")
         return
-    await message.reply("Хорошо, ухожу из чата. Всегда можно добавить меня снова! 👋")
+    await reply_with_cleanup(
+        message,
+        "Хорошо, ухожу из чата. Всегда можно добавить меня снова! 👋",
+        auto_delete=False,
+    )
     await bot.leave_chat(chat_id)
 
 
 async def cmd_addxp(message: Message, bot: Bot) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     user = message.from_user
     if user is None:
         return
     chat_id = message.chat.id
     if not await is_user_admin(bot, chat_id, user.id):
-        await message.reply("Только админ чата может выдавать сообщения другим участникам.")
+        await reply_with_cleanup(
+            message,
+            "Только админ чата может выдавать сообщения другим участникам.",
+        )
         return
     parts = message.text.split(maxsplit=1) if message.text else []
     if len(parts) < 2:
-        await message.reply("Использование: /addxp <количество> (команда должна быть ответом на сообщение участника)")
+        await reply_with_cleanup(
+            message,
+            "Использование: /addxp <количество> (команда должна быть ответом на сообщение участника)",
+        )
         return
     try:
         amount = int(parts[1].strip())
     except ValueError:
-        await message.reply("Количество должно быть числом.")
+        await reply_with_cleanup(message, "Количество должно быть числом.")
         return
     if amount <= 0:
-        await message.reply("Количество должно быть больше нуля.")
+        await reply_with_cleanup(message, "Количество должно быть больше нуля.")
         return
     reply = message.reply_to_message
     if not reply or not reply.from_user or reply.from_user.is_bot:
-        await message.reply("Команда должна быть ответом на сообщение участника.")
+        await reply_with_cleanup(
+            message, "Команда должна быть ответом на сообщение участника."
+        )
         return
     target = reply.from_user
     new_xp, old_rank, new_rank, leveled_up = storage.add_manual_xp(
@@ -520,12 +595,14 @@ async def cmd_addxp(message: Message, bot: Bot) -> None:
         text += f" Новый ранг: {new_rank} (всего: {new_xp})."
     else:
         text += f" Текущее количество: {new_xp}, ранг: {new_rank}."
-    await message.reply(text)
+    await reply_with_cleanup(message, text)
 
 
 async def ensure_private_chat(message: Message) -> bool:
     if message.chat.type != ChatType.PRIVATE:
-        await message.reply("Эта команда доступна только в личном чате с ботом.")
+        await reply_with_cleanup(
+            message, "Эта команда доступна только в личном чате с ботом."
+        )
         return False
     return True
 
@@ -535,12 +612,12 @@ async def cmd_keywords(message: Message) -> None:
         return
     keywords = storage.list_keywords()
     if not keywords:
-        await message.reply("Пока нет ни одного ключевого слова.")
+        await reply_with_cleanup(message, "Пока нет ни одного ключевого слова.")
         return
     lines = ["Ключевые фразы, которые дают XP:"]
     for word in keywords:
         lines.append(f"• {word}")
-    await message.reply("\n".join(lines))
+    await reply_with_cleanup(message, "\n".join(lines))
 
 
 async def cmd_addkeyword(message: Message) -> None:
@@ -548,13 +625,16 @@ async def cmd_addkeyword(message: Message) -> None:
         return
     parts = message.text.split(maxsplit=1) if message.text else []
     if len(parts) < 2:
-        await message.reply("Использование: /addkeyword <фраза>")
+        await reply_with_cleanup(message, "Использование: /addkeyword <фраза>")
         return
     phrase = parts[1]
     if storage.add_keyword(phrase):
-        await message.reply("Фраза добавлена.")
+        await reply_with_cleanup(message, "Фраза добавлена.")
     else:
-        await message.reply("Не удалось добавить фразу (возможно, она уже есть или пуста).")
+        await reply_with_cleanup(
+            message,
+            "Не удалось добавить фразу (возможно, она уже есть или пуста).",
+        )
 
 
 async def cmd_delkeyword(message: Message) -> None:
@@ -562,18 +642,18 @@ async def cmd_delkeyword(message: Message) -> None:
         return
     parts = message.text.split(maxsplit=1) if message.text else []
     if len(parts) < 2:
-        await message.reply("Использование: /delkeyword <фраза>")
+        await reply_with_cleanup(message, "Использование: /delkeyword <фраза>")
         return
     phrase = parts[1]
     if storage.delete_keyword(phrase):
-        await message.reply("Фраза удалена.")
+        await reply_with_cleanup(message, "Фраза удалена.")
     else:
-        await message.reply("Фраза не найдена.")
+        await reply_with_cleanup(message, "Фраза не найдена.")
 
 
 async def cmd_release(message: Message) -> None:
     if aiohttp is None:
-        await message.reply(
+        await reply_with_cleanup(
             "Модуль aiohttp не установлен. Установи зависимости (`pip install -r requirements.txt`), и я смогу показывать релизы."
         )
         return
@@ -590,69 +670,21 @@ async def cmd_release(message: Message) -> None:
         if not summary:
             summary, _ = await refresh_release_info(force=True)
     if summary:
-        await message.reply(summary)
+        await reply_with_cleanup(message, summary)
     else:
-        await message.reply("Информация о релизах пока недоступна. Попробуй позже.")
+        await reply_with_cleanup(
+            message, "Информация о релизах пока недоступна. Попробуй позже."
+        )
 
 
 async def cmd_guide(message: Message) -> None:
     if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
+        await reply_with_cleanup(message, "Команда работает только в группах.")
         return
     parts = message.text.split(maxsplit=1) if message.text else []
     if len(parts) < 2:
-        await message.reply("Использование: /guide <ключ>\nСписок ключей: /guides")
-        return
-    key = parts[1].strip().lower()
-    chat_id = message.chat.id
-    text = storage.get_guide(chat_id, key)
-    if not text:
-        await message.reply(
-            f"Гайд с ключом '{key}' не найден. Посмотри список через /guides."
-        )
-        return
-    await message.reply(text)
-
-
-async def cmd_guides(message: Message) -> None:
-    if message.chat.type not in group_types:
-        await message.reply("Команда работает только в группах.")
-        return
-    chat_id = message.chat.id
-    guides = storage.list_guides(chat_id)
-    if not guides:
-        await message.reply("Для этого чата ещё нет ни одного гайда.")
-        return
-    keyboard = build_guides_keyboard(chat_id)
-    lines = ["Выбери гайд кнопкой ниже или введи /guide <ключ>:"]
-    for key in sorted(guides.keys()):
-        lines.append(f"• {key}")
-    await message.reply("\n".join(lines), reply_markup=keyboard)
-async def handle_quick_buttons(message: Message) -> bool:
-    text = (message.text or "").strip().lower()
-    if not text:
-        return False
-    if text == "поиск гайда":
-        await message.reply("Напиши /guide <ключ>. Список ключей: /guides")
-        return True
-    if text == "список гайдов":
-        await cmd_guides(message)
-        return True
-    if text == "мой ранг":
-        await cmd_myrank(message)
-        return True
-    if text == "список рангов":
-        await cmd_ranks(message)
-        return True
-    if text == "помощь":
-        await cmd_help(message)
-        return True
-    return False
-
-
-async def handle_guide_callback(callback: CallbackQuery) -> None:
-    data = callback.data or ""
-    if not data.startswith(GUIDE_CALLBACK_PREFIX):
+        await reply_with_cleanup(
+            message, "Использование: /guide <ключ>\nСписок ключей: /guides"
         return
     key = data[len(GUIDE_CALLBACK_PREFIX) :]
     message = callback.message
