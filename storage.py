@@ -206,6 +206,20 @@ class BotStorage:
         cache["body"] = body
         self._save()
 
+    def get_release_list(self) -> Tuple[List[Dict[str, Any]], float]:
+        cache = self.get_release_cache()
+        items = cache.get("list")
+        if not isinstance(items, list):
+            items = []
+        fetched_at = float(cache.get("list_fetched_at") or 0)
+        return items, fetched_at
+
+    def set_release_list(self, items: List[Dict[str, Any]]) -> None:
+        cache = self.get_release_cache()
+        cache["list"] = items
+        cache["list_fetched_at"] = time.time()
+        self._save()
+
     def add_rank(self, chat_id: int, xp_min: int, name: str) -> None:
         settings = self.get_chat_settings(chat_id)
         ranks = settings.get("ranks") or []

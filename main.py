@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 
+RELEASES_PAGE_SIZE = 3
+RELEASES_CALLBACK_PREFIX = "rel:"
+
+
 def format_datetime(iso_str: str | None) -> str:
     if not iso_str:
         return "-"
@@ -9,6 +13,16 @@ def format_datetime(iso_str: str | None) -> str:
     except ValueError:
         return iso_str
     return dt.strftime("%d.%m.%Y %H:%M UTC")
+
+
+def format_date_short(iso_str: str | None) -> str:
+    if not iso_str:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    except ValueError:
+        return "-"
+    return dt.strftime("%d.%m.%Y")
 
 
 async def fetch_latest_release(session: aiohttp.ClientSession) -> dict | None:
@@ -81,6 +95,178 @@ def build_release_changes(
     if not changes:
         return [line for line in current_lines if line][:limit]
     return changes
+
+
+async def fetch_releases(session: aiohttp.ClientSession, limit: int = 30) -> list[dict]:
+    url = f"https://api.github.com/repos/{config.GITHUB_REPO}/releases"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ryazhenka-helper-bot/1.0",
+    }
+    params = {"per_page": max(limit, 1)}
+    async with session.get(url, headers=headers, params=params, timeout=30) as resp:
+        if resp.status != 200:
+            text = await resp.text()
+            logger.warning("Failed to fetch releases list: %s - %s", resp.status, text)
+            return []
+        data = await resp.json()
+    if not isinstance(data, list):
+        return []
+    return data[:limit]
+
+
+def simplify_release(release: dict) -> dict:
+    return {
+        "id": release.get("id"),
+        "tag_name": release.get("tag_name"),
+        "name": release.get("name"),
+        "html_url": release.get("html_url") or release.get("url"),
+        "published_at": release.get("published_at"),
+        "body": release.get("body"),
+    }
+
+
+async def get_release_list(force: bool = False) -> list[dict]:
+    if aiohttp is None:
+        logger.warning("aiohttp is not installed; cannot fetch release list")
+        return []
+    cached, fetched_at = storage.get_release_list()
+    ttl = int(getattr(config, "RELEASE_LIST_TTL_SECONDS", 900) or 900)
+    now = time.time()
+    if cached and not force and now - fetched_at < ttl:
+        return cached
+    async with aiohttp.ClientSession() as session:
+        releases = await fetch_releases(session)
+    if releases:
+        simplified = [simplify_release(release) for release in releases]
+        storage.set_release_list(simplified)
+        return simplified
+    return cached
+
+
+def format_release_button_label(release: dict) -> str:
+    tag = release.get("tag_name") or release.get("name") or "?"
+    date = format_date_short(release.get("published_at"))
+    return f"{tag} · {date}" if date != "-" else tag
+
+
+def build_release_list_keyboard(releases: list[dict], offset: int = 0) -> InlineKeyboardMarkup:
+    offset = max(0, offset)
+    total = len(releases)
+    end = min(offset + RELEASES_PAGE_SIZE, total)
+    buttons: list[list[InlineKeyboardButton]] = []
+    for idx in range(offset, end):
+        release = releases[idx]
+        label = format_release_button_label(release)
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=label[:64],
+                    callback_data=f"{RELEASES_CALLBACK_PREFIX}item:{idx}",
+                )
+            ]
+        )
+    nav_row: list[InlineKeyboardButton] = []
+    if offset > 0:
+        prev_offset = max(offset - RELEASES_PAGE_SIZE, 0)
+        nav_row.append(
+            InlineKeyboardButton(
+                text="◀ Назад",
+                callback_data=f"{RELEASES_CALLBACK_PREFIX}page:{prev_offset}",
+            )
+        )
+    if end < total:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="Ещё",
+                callback_data=f"{RELEASES_CALLBACK_PREFIX}page:{end}",
+            )
+        )
+    if nav_row:
+        buttons.append(nav_row)
+    if not buttons:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="Обновить",
+                    callback_data=f"{RELEASES_CALLBACK_PREFIX}page:0",
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+RELEASE_DETAIL_BODY_LINES = 15
+
+
+def format_release_detail(release: dict) -> str:
+    tag = release.get("tag_name") or release.get("name") or "?"
+    name = release.get("name") or "Без названия"
+    published = format_datetime(release.get("published_at"))
+    url = release.get("html_url") or release.get("url") or ""
+    lines = [
+        "🥛 Релиз Ryazhenka",
+        f"Tag: {tag}",
+        f"Название: {name}",
+        f"Дата: {published}",
+    ]
+    if url:
+        lines.append(f"Ссылка: {url}")
+    body = release.get("body")
+    if body:
+        trimmed = body.strip()
+        if trimmed:
+            body_lines = trimmed.splitlines()
+            snippet = "\n".join(body_lines[:RELEASE_DETAIL_BODY_LINES]).strip()
+            if len(body_lines) > RELEASE_DETAIL_BODY_LINES:
+                snippet += "\n..."
+            if snippet:
+                lines.append("\nОписание:\n" + snippet)
+    return "\n".join(lines)
+
+
+async def send_release_list_message(
+    message: Message,
+    *,
+    offset: int = 0,
+    force: bool = False,
+    edit_message: Message | None = None,
+) -> None:
+    if aiohttp is None:
+        text = "Список релизов недоступен: не установлен aiohttp."
+        if edit_message:
+            try:
+                await edit_message.edit_text(text)
+            except TelegramBadRequest:
+                await edit_message.edit_reply_markup()
+        else:
+            await reply_with_cleanup(message, text, auto_delete=False)
+        return
+    releases = await get_release_list(force=force)
+    if not releases:
+        text = "Не удалось получить список релизов. Попробуй позже."
+        if edit_message:
+            try:
+                await edit_message.edit_text(text)
+            except TelegramBadRequest:
+                await edit_message.edit_reply_markup()
+        else:
+            await reply_with_cleanup(message, text)
+        return
+    keyboard = build_release_list_keyboard(releases, offset)
+    text = "Последние релизы Ryazhenka:"
+    if edit_message:
+        try:
+            await edit_message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest:
+            await edit_message.edit_reply_markup(reply_markup=keyboard)
+    else:
+        await reply_with_cleanup(
+            message,
+            text,
+            reply_markup=keyboard,
+            auto_delete=False,
+        )
 
 
 async def broadcast_release(bot: Bot, summary: str) -> None:
@@ -254,6 +440,7 @@ def make_main_keyboard() -> ReplyKeyboardMarkup:
             [
                 KeyboardButton(text="Помощь"),
                 KeyboardButton(text="Проекты Ryazhenka"),
+                KeyboardButton(text="Релизы"),
             ],
         ],
         resize_keyboard=True,
@@ -654,6 +841,7 @@ async def cmd_delkeyword(message: Message) -> None:
 async def cmd_release(message: Message) -> None:
     if aiohttp is None:
         await reply_with_cleanup(
+            message,
             "Модуль aiohttp не установлен. Установи зависимости (`pip install -r requirements.txt`), и я смогу показывать релизы."
         )
         return
@@ -670,7 +858,7 @@ async def cmd_release(message: Message) -> None:
         if not summary:
             summary, _ = await refresh_release_info(force=True)
     if summary:
-        await reply_with_cleanup(message, summary)
+        await reply_with_cleanup(message, summary, auto_delete=False)
     else:
         await reply_with_cleanup(
             message, "Информация о релизах пока недоступна. Попробуй позже."
@@ -685,23 +873,18 @@ async def cmd_guide(message: Message) -> None:
     if len(parts) < 2:
         await reply_with_cleanup(
             message, "Использование: /guide <ключ>\nСписок ключей: /guides"
+        )
         return
-    key = data[len(GUIDE_CALLBACK_PREFIX) :]
-    message = callback.message
-    if message is None:
-        await callback.answer("Сообщение не найдено", show_alert=True)
-        return
+    key = parts[1].strip().lower()
     chat_id = message.chat.id
     text = storage.get_guide(chat_id, key)
-    if text:
-        await callback.answer()
-        sent = await message.answer(text)
-        bot = message.bot
-        asyncio.create_task(
-            schedule_delete_message(bot, sent.chat.id, sent.message_id)
+    if not text:
+        await reply_with_cleanup(
+            message,
+            f"Гайд с ключом '{key}' не найден. Посмотри список через /guides.",
         )
-    else:
-        await callback.answer("Гайд не найден", show_alert=True)
+        return
+    await reply_with_cleanup(message, text, auto_delete=False)
 
 
 async def on_reaction(update: MessageReactionUpdated) -> None:
@@ -750,9 +933,55 @@ async def on_message(message: Message) -> None:
     )
     if leveled_up:
         name = user.full_name or user.username or "участник"
-        await message.reply(
-            f"{name}, поздравляю! Твой новый ранг: {new_rank} (сообщений: {new_xp})."
+        await reply_with_cleanup(
+            message,
+            f"{name}, поздравляю! Твой новый ранг: {new_rank} (сообщений: {new_xp}).",
+            auto_delete=False,
         )
+
+
+async def handle_release_callback(callback: CallbackQuery) -> None:
+    data = callback.data or ""
+    if not data.startswith(RELEASES_CALLBACK_PREFIX):
+        return
+    await callback.answer()
+    payload = data[len(RELEASES_CALLBACK_PREFIX) :]
+    parts = payload.split(":", 1)
+    if len(parts) != 2:
+        return
+    action, value = parts
+    message = callback.message
+    if message is None:
+        return
+    releases = await get_release_list()
+    if not releases:
+        try:
+            await message.edit_text("Список релизов недоступен. Попробуй позже.")
+        except TelegramBadRequest:
+            await message.edit_reply_markup()
+        return
+    if action == "page":
+        try:
+            offset = int(value)
+        except ValueError:
+            offset = 0
+        await send_release_list_message(
+            message,
+            offset=offset,
+            edit_message=message,
+        )
+    elif action == "item":
+        try:
+            index = int(value)
+        except ValueError:
+            index = 0
+        if 0 <= index < len(releases):
+            detail = format_release_detail(releases[index])
+            await reply_with_cleanup(
+                message,
+                detail,
+                auto_delete=False,
+            )
 
 
 async def main() -> None:
