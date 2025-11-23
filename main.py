@@ -364,11 +364,27 @@ GUIDE_CALLBACK_PREFIX = "guide:"
 
 PROJECTS_RYAZHENKA_TEXT = (
     "Проекты Ryazhenka:\n"
-    "• Ryazhahand Overlay – https://github.com/Dimasick-git/Ryazhahand-Overlay\n"
-    "• Ryazhenkabestcfw Tuner – https://github.com/Dimasick-git/Ryazhenkabestcfw-Tuner\n"
-    "• RyazhaTune – https://github.com/Dimasick-git/RyazhaTune\n"
-    "• Ryazha Status Monitor – https://github.com/Dimasick-git/Ryazha-Status-Monitor"
+    "Выбери репозиторий на клавиатуре ниже, чтобы открыть его страницу."
 )
+
+PROJECTS_RYAZHENKA_LINKS = [
+    (
+        "Ryazhahand Overlay",
+        "https://github.com/Dimasick-git/Ryazhahand-Overlay",
+    ),
+    (
+        "Ryazhenkabestcfw Tuner",
+        "https://github.com/Dimasick-git/Ryazhenkabestcfw-Tuner",
+    ),
+    (
+        "RyazhaTune",
+        "https://github.com/Dimasick-git/RyazhaTune",
+    ),
+    (
+        "Ryazha Status Monitor",
+        "https://github.com/Dimasick-git/Ryazha-Status-Monitor",
+    ),
+]
 
 
 logger = logging.getLogger(__name__)
@@ -482,6 +498,14 @@ def build_guides_keyboard(chat_id: int) -> InlineKeyboardMarkup | None:
                 )
             ]
         )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def build_projects_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text=name, url=url)]
+        for name, url in PROJECTS_RYAZHENKA_LINKS
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -1074,6 +1098,7 @@ async def handle_quick_buttons(message: Message) -> bool:
         await reply_with_cleanup(
             message,
             PROJECTS_RYAZHENKA_TEXT,
+            reply_markup=build_projects_keyboard(),
             auto_delete=False,
         )
         return True
