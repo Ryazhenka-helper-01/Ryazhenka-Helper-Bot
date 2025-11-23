@@ -344,7 +344,7 @@ try:
     import aiohttp
 except ImportError:  # pragma: no cover - optional dependency
     aiohttp = None
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
@@ -1164,8 +1164,12 @@ async def main() -> None:
     dp.message.register(cmd_addkeyword, Command("addkeyword"))
     dp.message.register(cmd_delkeyword, Command("delkeyword"))
     dp.message.register(on_message)
-    dp.callback_query.register(handle_guide_callback)
-    dp.callback_query.register(handle_release_callback)
+    dp.callback_query.register(
+        handle_guide_callback, F.data.startswith(GUIDE_CALLBACK_PREFIX)
+    )
+    dp.callback_query.register(
+        handle_release_callback, F.data.startswith(RELEASES_CALLBACK_PREFIX)
+    )
     dp.message_reaction.register(on_reaction)
 
     try:
