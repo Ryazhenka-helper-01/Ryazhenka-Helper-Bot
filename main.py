@@ -242,7 +242,15 @@ async def send_release_list_message(
         else:
             await reply_with_cleanup(message, text, auto_delete=False)
         return
-    releases = await get_release_list(force=force)
+    try:
+        releases = await get_release_list(force=force)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to load release list: %s", exc)
+        await reply_with_cleanup(
+            message,
+            "Не удалось получить список релизов. Попробуй позже.",
+        )
+        return
     if not releases:
         text = "Не удалось получить список релизов. Попробуй позже."
         if edit_message:
