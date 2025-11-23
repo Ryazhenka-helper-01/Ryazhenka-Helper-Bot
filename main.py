@@ -1165,6 +1165,7 @@ async def main() -> None:
     dp.message.register(cmd_delkeyword, Command("delkeyword"))
     dp.message.register(on_message)
     dp.callback_query.register(handle_guide_callback)
+    dp.callback_query.register(handle_release_callback)
     dp.message_reaction.register(on_reaction)
 
     try:
