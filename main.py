@@ -908,6 +908,34 @@ async def cmd_guides(message: Message) -> None:
     )
 
 
+async def handle_guide_callback(callback: CallbackQuery) -> None:
+    data = callback.data or ""
+    if not data.startswith(GUIDE_CALLBACK_PREFIX):
+        return
+    await callback.answer()
+    message = callback.message
+    if message is None:
+        return
+    chat_id = message.chat.id
+    key = data[len(GUIDE_CALLBACK_PREFIX) :]
+    if not key:
+        return
+    text = storage.get_guide(chat_id, key)
+    if not text:
+        try:
+            await message.edit_text(
+                "Гайд не найден. Обнови список /guides.", reply_markup=None
+            )
+        except TelegramBadRequest:
+            await message.edit_reply_markup()
+        return
+    await reply_with_cleanup(
+        message,
+        text,
+        auto_delete=False,
+    )
+
+
 async def on_reaction(update: MessageReactionUpdated) -> None:
     chat = update.chat
     if chat.type not in group_types:
