@@ -1111,7 +1111,16 @@ async def handle_quick_buttons(message: Message) -> bool:
         )
         return True
     if text == "Релизы":
-        await send_release_list_message(message, force=False)
+        placeholder = await reply_with_cleanup(
+            message,
+            "Загружаю список релизов...",
+            auto_delete=False,
+        )
+        await send_release_list_message(
+            message,
+            force=False,
+            edit_message=placeholder,
+        )
         return True
     return False
 
