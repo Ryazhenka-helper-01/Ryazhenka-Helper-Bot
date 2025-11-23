@@ -965,8 +965,6 @@ async def on_reaction(update: MessageReactionUpdated) -> None:
 
 
 async def on_message(message: Message) -> None:
-    if message.chat.type not in group_types:
-        return
     user = message.from_user
     if user is None or user.is_bot:
         return
@@ -974,6 +972,8 @@ async def on_message(message: Message) -> None:
         return
     handled = await handle_quick_buttons(message)
     if handled:
+        return
+    if message.chat.type not in group_types:
         return
     if not is_help_request(message.text):
         return
