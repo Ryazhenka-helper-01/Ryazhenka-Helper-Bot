@@ -501,6 +501,7 @@ async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
 async def cmd_start(message: Message, bot: Bot) -> None:
     if message.chat.type in group_types:
         await reply_with_cleanup(
+            message,
             "Привет! Я Ruzhenka-helper.\n"
             "Считаю активность участников и могу выдавать гайды.\n"
             "Напиши /help, чтобы посмотреть команды.",
@@ -522,11 +523,13 @@ async def cmd_start(message: Message, bot: Bot) -> None:
                 ]
             )
         await answer_with_cleanup(
+            message,
             "Привет! Я Ruzhenka-helper — бот для групп.\n"
             "Добавь меня в свой чат как админа и используй /help в чате.",
             reply_markup=keyboard,
         )
         await answer_with_cleanup(
+            message,
             "Выбери действие на клавиатуре ниже.",
             reply_markup=make_main_keyboard(),
         )
