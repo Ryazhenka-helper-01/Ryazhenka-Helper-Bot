@@ -1,10 +1,150 @@
+def format_datetime(iso_str: str | None) -> str:
+    if not iso_str:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    except ValueError:
+        return iso_str
+    return dt.strftime("%d.%m.%Y %H:%M UTC")
+
+
+async def fetch_latest_release(session: aiohttp.ClientSession) -> dict | None:
+    url = f"https://api.github.com/repos/{config.GITHUB_REPO}/releases"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ryazhenka-helper-bot/1.0",
+    }
+    async with session.get(url, headers=headers, timeout=30) as resp:
+        if resp.status != 200:
+            text = await resp.text()
+            logger.warning("Failed to fetch releases: %s - %s", resp.status, text)
+            return None
+        data = await resp.json()
+    if not data:
+        return None
+    return data[0]
+
+
+async def fetch_diff_files(
+    session: aiohttp.ClientSession, base_tag: str | None, head_tag: str | None
+) -> tuple[list[str], int]:
+    if not base_tag or not head_tag or base_tag == head_tag:
+        return [], 0
+    url = f"https://api.github.com/repos/{config.GITHUB_REPO}/compare/{base_tag}...{head_tag}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ryazhenka-helper-bot/1.0",
+    }
+    async with session.get(url, headers=headers, timeout=30) as resp:
+        if resp.status != 200:
+            text = await resp.text()
+            logger.warning(
+                "Failed to compare releases %s...%s: %s - %s",
+                base_tag,
+                head_tag,
+                resp.status,
+                text,
+            )
+            return [], 0
+        data = await resp.json()
+    files = [item.get("filename") for item in data.get("files", []) if item.get("filename")]
+    limit = getattr(config, "RELEASE_DIFF_LIMIT", 15)
+    truncated = max(0, len(files) - limit)
+    return files[:limit], truncated
+
+
+def build_release_summary(
+    release: dict, diff_files: list[str], truncated_count: int
+) -> str:
+    tag = release.get("tag_name") or release.get("name") or "?"
+    name = release.get("name") or "Без названия"
+    published = format_datetime(release.get("published_at"))
+    url = release.get("html_url") or release.get("url") or ""
+    lines = [
+        "🥛 Новый релиз Ryazhenka!",
+        f"Tag: {tag}",
+        f"Название: {name}",
+        f"Дата: {published}",
+    ]
+    if url:
+        lines.append(f"Ссылка: {url}")
+    assets = release.get("assets") or []
+    if assets:
+        lines.append("\nAssets (доступные файлы):")
+        for asset in assets:
+            size = asset.get("size", 0)
+            size_mb = size / 1_048_576 if size else 0
+            size_str = f" ({size_mb:.1f} MB)" if size else ""
+            lines.append(f"• {asset.get('name')} {size_str}".rstrip())
+    if diff_files:
+        lines.append("\nИзменённые файлы:")
+        for path in diff_files:
+            lines.append(f"• {path}")
+        if truncated_count:
+            lines.append(f"… и ещё {truncated_count} файлов.")
+    body = release.get("body")
+    if body:
+        trimmed = body.strip()
+        if trimmed:
+            lines.append("\nОписание:\n" + trimmed)
+    return "\n".join(lines)
+
+
+async def broadcast_release(bot: Bot, summary: str) -> None:
+    chat_ids = storage.list_chat_ids()
+    for chat_id in chat_ids:
+        try:
+            await bot.send_message(chat_id, summary)
+        except TelegramForbiddenError:
+            logger.info("Skipping chat %s: bot has no permission", chat_id)
+        except TelegramBadRequest as exc:
+            logger.warning("Failed to send release to %s: %s", chat_id, exc)
+
+
+async def refresh_release_info(
+    bot: Bot | None = None, force: bool = False, broadcast: bool = False
+) -> tuple[str | None, bool]:
+    async with aiohttp.ClientSession() as session:
+        release = await fetch_latest_release(session)
+        if not release:
+            return None, False
+        tag = release.get("tag_name") or release.get("name")
+        last_tag, _, cached_summary = storage.get_last_release_info()
+        new_release = tag and tag != last_tag
+        diff_files: list[str] = []
+        truncated = 0
+        if new_release and last_tag:
+            diff_files, truncated = await fetch_diff_files(session, last_tag, tag)
+        if not new_release and not force:
+            return cached_summary, False
+        summary = build_release_summary(release, diff_files, truncated)
+        storage.set_last_release_info(tag or "", release.get("published_at"), summary)
+        should_broadcast = broadcast and new_release and last_tag is not None
+        if should_broadcast and bot:
+            await broadcast_release(bot, summary)
+        return summary, new_release
+
+
+async def release_monitor(bot: Bot) -> None:
+    await asyncio.sleep(10)
+    interval = getattr(config, "RELEASE_CHECK_INTERVAL_SECONDS", 600)
+    while True:
+        try:
+            await refresh_release_info(bot=bot, broadcast=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Release monitor error: %s", exc)
+        await asyncio.sleep(interval)
 import asyncio
+import logging
 import re
 import time
+from contextlib import suppress
+from datetime import datetime
 
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatMemberStatus, ChatType
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message,
@@ -27,6 +167,9 @@ group_types = {ChatType.GROUP, ChatType.SUPERGROUP}
 
 
 GUIDE_CALLBACK_PREFIX = "guide:"
+
+
+logger = logging.getLogger(__name__)
 
 
 async def schedule_delete_message(bot: Bot, chat_id: int, message_id: int, delay: int = 300) -> None:
@@ -161,6 +304,7 @@ async def cmd_help(message: Message) -> None:
         "/keywords – показать ключевые фразы\n"
         "/addkeyword <фраза> – добавить фразу\n"
         "/delkeyword <фраза> – удалить фразу\n"
+        "/release [refresh] – показать последний релиз Ryazhenka\n"
     )
     await message.reply(text)
 
@@ -418,6 +562,25 @@ async def cmd_delkeyword(message: Message) -> None:
         await message.reply("Фраза не найдена.")
 
 
+async def cmd_release(message: Message, bot: Bot) -> None:
+    args = message.text.split(maxsplit=1) if message.text else []
+    force = False
+    if len(args) > 1:
+        force = args[1].strip().lower() in {"refresh", "update", "force"}
+    summary = None
+    if force:
+        summary, _ = await refresh_release_info(force=True)
+    else:
+        _, _, cached = storage.get_last_release_info()
+        summary = cached
+        if not summary:
+            summary, _ = await refresh_release_info(force=True)
+    if summary:
+        await message.reply(summary)
+    else:
+        await message.reply("Информация о релизах пока недоступна. Попробуй позже.")
+
+
 async def cmd_guide(message: Message) -> None:
     if message.chat.type not in group_types:
         await message.reply("Команда работает только в группах.")
@@ -560,8 +723,11 @@ async def main() -> None:
             BotCommand(command="ranks", description="Список рангов"),
             BotCommand(command="guides", description="Список гайдов"),
             BotCommand(command="guide", description="Показать гайд по ключу"),
+            BotCommand(command="release", description="Информация о релизе"),
         ]
     )
+
+    release_task = asyncio.create_task(release_monitor(bot))
 
     dp.message.register(cmd_start, CommandStart())
     dp.message.register(cmd_help, Command("help"))
@@ -575,6 +741,7 @@ async def main() -> None:
     dp.message.register(cmd_leavebot, Command("leavebot"))
     dp.message.register(cmd_guide, Command("guide"))
     dp.message.register(cmd_guides, Command("guides"))
+    dp.message.register(cmd_release, Command("release"))
     dp.message.register(cmd_keywords, Command("keywords"))
     dp.message.register(cmd_addkeyword, Command("addkeyword"))
     dp.message.register(cmd_delkeyword, Command("delkeyword"))
@@ -582,8 +749,13 @@ async def main() -> None:
     dp.callback_query.register(handle_guide_callback)
     dp.message_reaction.register(on_reaction)
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+    finally:
+        release_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await release_task
 
 
 if __name__ == "__main__":

@@ -63,6 +63,11 @@ class BotStorage:
                     )
             self.data["global_users"] = global_users
             changed = True
+        if "release_cache" not in self.data or not isinstance(
+            self.data.get("release_cache"), dict
+        ):
+            self.data["release_cache"] = {}
+            changed = True
         if changed:
             self._save()
 
@@ -121,6 +126,9 @@ class BotStorage:
     def get_chat_settings(self, chat_id: int) -> Dict[str, Any]:
         return self._get_chat(chat_id)["settings"]
 
+    def list_chat_ids(self) -> List[int]:
+        return [int(chat_id) for chat_id in self.data.get("chats", {}).keys()]
+
     def get_user(
         self, chat_id: int, user_id: int, username: str | None = None
     ) -> Dict[str, Any]:
@@ -173,6 +181,26 @@ class BotStorage:
         leveled_up = new_rank != old_rank
         self._save()
         return new_xp, old_rank, new_rank, leveled_up
+
+    def get_release_cache(self) -> Dict[str, Any]:
+        return self.data.setdefault("release_cache", {})
+
+    def get_last_release_info(self) -> Tuple[str | None, str | None, str | None]:
+        cache = self.get_release_cache()
+        return (
+            cache.get("tag"),
+            cache.get("published_at"),
+            cache.get("summary"),
+        )
+
+    def set_last_release_info(
+        self, tag: str, published_at: str | None, summary: str | None
+    ) -> None:
+        cache = self.get_release_cache()
+        cache["tag"] = tag
+        cache["published_at"] = published_at
+        cache["summary"] = summary
+        self._save()
 
     def add_rank(self, chat_id: int, xp_min: int, name: str) -> None:
         settings = self.get_chat_settings(chat_id)

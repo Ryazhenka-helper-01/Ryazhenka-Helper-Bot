@@ -7,6 +7,10 @@ DATA_FILE = "data.json"
 XP_PER_MESSAGE = 1
 XP_COOLDOWN_SECONDS = 0
 
+GITHUB_REPO = "Dimasick-git/Ryzhenka"
+RELEASE_CHECK_INTERVAL_SECONDS = 3600
+RELEASE_DIFF_LIMIT = 15
+
 HELP_KEYWORDS = [
     "нужна помощь",
     "помогите",
