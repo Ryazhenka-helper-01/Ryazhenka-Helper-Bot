@@ -104,6 +104,9 @@ async def broadcast_release(bot: Bot, summary: str) -> None:
 async def refresh_release_info(
     bot: Bot | None = None, force: bool = False, broadcast: bool = False
 ) -> tuple[str | None, bool]:
+    if aiohttp is None:
+        logger.warning("aiohttp is not installed; release info unavailable")
+        return None, False
     async with aiohttp.ClientSession() as session:
         release = await fetch_latest_release(session)
         if not release:
@@ -126,6 +129,9 @@ async def refresh_release_info(
 
 
 async def release_monitor(bot: Bot) -> None:
+    if aiohttp is None:
+        logger.warning("Release monitor disabled: aiohttp not installed")
+        return
     await asyncio.sleep(10)
     interval = getattr(config, "RELEASE_CHECK_INTERVAL_SECONDS", 600)
     while True:
@@ -141,7 +147,10 @@ import time
 from contextlib import suppress
 from datetime import datetime
 
-import aiohttp
+try:
+    import aiohttp
+except ImportError:  # pragma: no cover - optional dependency
+    aiohttp = None
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -563,6 +572,11 @@ async def cmd_delkeyword(message: Message) -> None:
 
 
 async def cmd_release(message: Message, bot: Bot) -> None:
+    if aiohttp is None:
+        await message.reply(
+            "Модуль aiohttp не установлен. Установи зависимости (`pip install -r requirements.txt`), и я смогу показывать релизы."
+        )
+        return
     args = message.text.split(maxsplit=1) if message.text else []
     force = False
     if len(args) > 1:
@@ -727,7 +741,9 @@ async def main() -> None:
         ]
     )
 
-    release_task = asyncio.create_task(release_monitor(bot))
+    release_task = None
+    if aiohttp is not None:
+        release_task = asyncio.create_task(release_monitor(bot))
 
     dp.message.register(cmd_start, CommandStart())
     dp.message.register(cmd_help, Command("help"))
@@ -753,9 +769,10 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
-        release_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await release_task
+        if release_task:
+            release_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await release_task
 
 
 if __name__ == "__main__":
