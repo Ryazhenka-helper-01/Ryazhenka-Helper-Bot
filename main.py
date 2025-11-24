@@ -532,6 +532,11 @@ async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
 
 async def cmd_start(message: Message, bot: Bot) -> None:
     if message.chat.type in group_types:
+        user = message.from_user
+        if user is None:
+            return
+        if not await is_user_admin(bot, message.chat.id, user.id):
+            return
         await reply_with_cleanup(
             message,
             "Привет! Я Ruzhenka-helper.\n"
